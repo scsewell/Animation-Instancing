@@ -1,0 +1,20 @@
+{
+  "name": "com.ssewell.animation-instancing",
+  "displayName": "Animation Instancing",
+  "version": "0.1.0",
+  "unity": "2020.3",
+  "description": "A system for instancing animated meshes.",
+  "keywords": [
+    "instancing",
+    "skinning",
+  ],
+  "category": "Unity",
+  "dependencies": {
+    "com.unity.burst": "1.4.6",
+  }
+  "author": {
+    "name": "Scott Sewell",
+    "email": "scottsewell8@gmail.com",
+    "url": "https://github.com/scsewell"
+  }
+}

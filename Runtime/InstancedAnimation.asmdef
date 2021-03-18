@@ -1,0 +1,24 @@
+{
+    "name": "InstancedAnimation",
+    "rootNamespace": "InstancedAnimation",
+    "references": [
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.Mathematics",
+        "Unity.Burst"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.core",
+            "expression": "11.0.0",
+            "define": "UNITY_SRP_11_0_0_OR_NEWER"
+        }
+    ],
+    "noEngineReferences": false
+}

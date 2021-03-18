@@ -1,0 +1,153 @@
+﻿#pragma kernel ScanInBucket
+#pragma kernel ScanAcrossBuckets
+#pragma kernel ScanCombine
+
+// An exclusive scan algorithm implementation that uses compute shaders.
+// https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda
+// https://www.mpc-rnd.com/unity-gpu-culling-experiments-part2-optimizations/
+//
+// The algorithm uses group shared memory to optimize the computation. DX11 is
+// limited to 1024 threads per group, and there are 2 elements processed per
+// thread. Therefore, we must have space for at most 2048 integer elements in the
+// groupshared memory, using 2048 * 4 = 8 KB, below the 32 KB limit set by DX11.
+//
+// However, since we are limited to 1024 threads per group, to compute the scan 
+// of arrays larger than 2048 elements, we must do the computation in three passes.
+// The first pass uses each thread group to compute the local scan of smaller buckets
+// of elements, during which the scan total for the bucket is buffered to main memory.
+// The second pass computes the global scan of the bucket sums produced in the first pass.
+// The third pass takes the scan values within each bucket and adds the scan sum for the
+// previous bucket that computed in the second step, resulting in a completed scan array.
+// Note that this third pass is best done in the shader that uses the scan results, to avoid
+// the need for an additional kernel invocation, but for the sake of completeness has been
+// included.
+//
+// Since each pass is limited to 2048 elements, at most 2048 * 2048 = 4194304 elements
+// can be scanned using two passes. However, we limit the size of the first pass below
+// that maximum to optimize for the common cases, reducing the max element count.
+
+#define MAX_THREAD_GROUP_SIZE 1024
+#define BUCKET_SIZE 512
+
+int _ScanBucketCount;
+
+StructuredBuffer<uint> _ScanIn;
+RWStructuredBuffer<uint> _ScanOut;
+RWStructuredBuffer<uint> _ScanIntermediate;
+
+groupshared uint temp[2 * MAX_THREAD_GROUP_SIZE];
+
+[numthreads(BUCKET_SIZE / 2, 1, 1)]
+void ScanInBucket(int tID : SV_DispatchThreadID, int groupTID : SV_GroupThreadID, int groupID : SV_GroupID)
+{
+    int d;
+    int offset = 1;
+
+    // load input into shared memory
+    temp[2 * groupTID] = _ScanIn[2 * tID];
+    temp[2 * groupTID + 1] = _ScanIn[2 * tID + 1];
+
+    // reduction step
+    for (d = BUCKET_SIZE >> 1; d > 0; d >>= 1)
+    {
+        GroupMemoryBarrierWithGroupSync();
+
+        if (groupTID < d)
+        {
+            int ai = offset * (2 * groupTID + 1) - 1;
+            int bi = offset * (2 * groupTID + 2) - 1;
+            temp[bi] += temp[ai];
+        }
+        offset <<= 1;
+    }
+
+    // clear the last element, but first save it as the scan sum for the bucket
+    if (groupTID == 0)
+    {
+        _ScanIntermediate[groupID] = temp[BUCKET_SIZE - 1];
+        temp[BUCKET_SIZE - 1] = 0;
+    }
+
+    // downsweep and build scan
+    for (d = 1; d < BUCKET_SIZE; d <<= 1)
+    {
+        offset >>= 1;
+
+        GroupMemoryBarrierWithGroupSync();
+
+        if (groupTID < d)
+        {
+            int ai = offset * (2 * groupTID + 1) - 1;
+            int bi = offset * (2 * groupTID + 2) - 1;
+            int t = temp[ai];
+            temp[ai] = temp[bi];
+            temp[bi] += t;
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // store to main memory
+    _ScanOut[2 * tID] = temp[2 * groupTID];
+    _ScanOut[2 * tID + 1] = temp[2 * groupTID + 1];
+}
+
+[numthreads(MAX_THREAD_GROUP_SIZE, 1, 1)]
+void ScanAcrossBuckets(int tID : SV_DispatchThreadID, int groupTID : SV_GroupThreadID)
+{
+    int d;
+    int offset = 1;
+
+    // load input into shared memory
+    temp[2 * groupTID] = _ScanIn[2 * tID];
+    temp[2 * groupTID + 1] = _ScanIn[2 * tID + 1];
+
+    // reduction step
+    for (d = _ScanBucketCount >> 1; d > 0; d >>= 1)
+    {
+        GroupMemoryBarrierWithGroupSync();
+
+        if (groupTID < d)
+        {
+            int ai = offset * (2 * groupTID + 1) - 1;
+            int bi = offset * (2 * groupTID + 2) - 1;
+            temp[bi] += temp[ai];
+        }
+        offset <<= 1;
+    }
+
+    // clear the last element
+    if (tID == 0)
+    {
+        temp[_ScanBucketCount - 1] = 0;
+    }
+
+    // downsweep and build scan
+    for (d = 1; d < _ScanBucketCount; d <<= 1)
+    {
+        offset >>= 1;
+
+        GroupMemoryBarrierWithGroupSync();
+
+        if (tID < d)
+        {
+            int ai = offset * (2 * groupTID + 1) - 1;
+            int bi = offset * (2 * groupTID + 2) - 1;
+            int t = temp[ai];
+            temp[ai] = temp[bi];
+            temp[bi] += t;
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // store to main memory
+    _ScanOut[2 * tID] = temp[2 * tID];
+    _ScanOut[2 * tID + 1] = temp[2 * tID + 1];
+}
+
+[numthreads(BUCKET_SIZE, 1, 1)]
+void ScanCombine(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
+{
+    _ScanOut[tID] = _ScanIn[tID] +  _ScanIntermediate[groupID];
+}
