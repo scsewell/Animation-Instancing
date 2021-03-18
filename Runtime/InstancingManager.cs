@@ -198,41 +198,41 @@ namespace InstancedAnimation
 
         static void CreateBuffers()
         {
-            s_meshDataBuffer = new ComputeBuffer(, MeshData.k_size)
-            {
-                name = $"{nameof(InstancingManager)}MeshData",
-            };
-            s_drawArgsBuffer = new ComputeBuffer(, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
-            {
-                name = $"{nameof(InstancingManager)}DrawArgs",
-            };
+            //s_meshDataBuffer = new ComputeBuffer(, MeshData.k_size)
+            //{
+            //    name = $"{nameof(InstancingManager)}MeshData",
+            //};
+            //s_drawArgsBuffer = new ComputeBuffer(, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
+            //{
+            //    name = $"{nameof(InstancingManager)}DrawArgs",
+            //};
 
-            s_animationDataBuffer = new ComputeBuffer(, AnimationData.k_size)
-            {
-                name = $"{nameof(InstancingManager)}AnimationData",
-            };
+            //s_animationDataBuffer = new ComputeBuffer(, AnimationData.k_size)
+            //{
+            //    name = $"{nameof(InstancingManager)}AnimationData",
+            //};
 
-            s_instanceDataBuffer = new ComputeBuffer(count, InstanceData.k_size)
-            {
-                name = $"{nameof(InstancingManager)}InstanceData",
-            };
-            s_isVisibleBuffer = new ComputeBuffer(count, sizeof(uint))
-            {
-                name = $"{nameof(InstancingManager)}IsVisible",
-            };
-            s_isVisibleScanInBucketBuffer = new ComputeBuffer(count, sizeof(uint))
-            {
-                name = $"{nameof(InstancingManager)}isVisibleScanInBucket",
-            };
-            s_instanceDataBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
-            {
-                name = $"{nameof(InstancingManager)}InstanceData",
-            };
+            //s_instanceDataBuffer = new ComputeBuffer(count, InstanceData.k_size)
+            //{
+            //    name = $"{nameof(InstancingManager)}InstanceData",
+            //};
+            //s_isVisibleBuffer = new ComputeBuffer(count, sizeof(uint))
+            //{
+            //    name = $"{nameof(InstancingManager)}IsVisible",
+            //};
+            //s_isVisibleScanInBucketBuffer = new ComputeBuffer(count, sizeof(uint))
+            //{
+            //    name = $"{nameof(InstancingManager)}isVisibleScanInBucket",
+            //};
+            //s_instanceDataBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
+            //{
+            //    name = $"{nameof(InstancingManager)}InstanceData",
+            //};
 
-            s_isVisibleScanAcrossBucketsBuffer = new ComputeBuffer(, sizeof(uint))
-            {
-                name = $"{nameof(InstancingManager)}isVisibleScanAcrossBuckets",
-            };
+            //s_isVisibleScanAcrossBucketsBuffer = new ComputeBuffer(, sizeof(uint))
+            //{
+            //    name = $"{nameof(InstancingManager)}isVisibleScanAcrossBuckets",
+            //};
         }
 
         static void Draw(Camera cam)

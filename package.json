@@ -6,12 +6,13 @@
   "description": "A system for instancing animated meshes.",
   "keywords": [
     "instancing",
-    "skinning",
+    "animation",
+    "skinning"
   ],
-  "category": "Unity",
+  "category": "",
   "dependencies": {
-    "com.unity.burst": "1.4.6",
-  }
+    "com.unity.burst": "1.4.6"
+  },
   "author": {
     "name": "Scott Sewell",
     "email": "scottsewell8@gmail.com",
