@@ -1,13 +1,13 @@
 using System;
 using UnityEngine;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
-    /// A class that stores a baked animation.
+    /// A class that stores details about an animation baked into an animation atlas texture.
     /// </summary>
     [Serializable]
-    public struct Animation
+    public struct InstancedAnimation
     {
         [SerializeField]
         [Tooltip("The area of the animation texture containing this animation.")]
@@ -37,13 +37,13 @@ namespace InstancedAnimation
         public Bounds Bounds => m_bounds;
 
         /// <summary>
-        /// Creates a new <see cref="Animation"/> instance.
+        /// Creates a new <see cref="InstancedAnimation"/> instance.
         /// </summary>
         /// <param name="region">The area of the animation texture containing the animation.</param>
-        /// <param name="length">The length of the animation in seconds.</param>
-        /// <param name="fps">The frames per second of the animation.</param>
+        /// <param name="length">The length of the animation in seconds. Must be larger than zero.</param>
         /// <param name="bounds">The bounds of the meshes during this animation.</param>
-        public Animation(RectInt region, float length, Bounds bounds)
+        /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="length"/> is not larger than zero.</exception>
+        public InstancedAnimation(RectInt region, float length, Bounds bounds)
         {
             if (length <= 0)
             {

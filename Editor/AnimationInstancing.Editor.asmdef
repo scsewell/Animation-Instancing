@@ -1,8 +1,8 @@
 {
-    "name": "InstancedAnimation.Editor",
-    "rootNamespace": "InstancedAnimation",
+    "name": "AnimationInstancing.Editor",
+    "rootNamespace": "AnimationInstancing",
     "references": [
-        "InstancedAnimation",
+        "AnimationInstancing",
         "Unity.Mathematics",
         "Unity.Burst"
     ],

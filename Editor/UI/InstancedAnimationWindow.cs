@@ -1,4 +1,3 @@
-using System;
 using System.Linq;
 
 using UnityEditor;
@@ -7,61 +6,32 @@ using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
-    /// A window used to bake animation data for instanced meshes.
+    ///     A window used to bake animation data for instanced meshes.
     /// </summary>
     class InstancedAnimationWindow : EditorWindow
     {
-        static readonly string k_AssetsPath = "Assets/";
-
-        static class Contents
-        {
-            public static readonly float spacing = 21f;
-
-            public static readonly GUIContent animator = new GUIContent("Animator", "The animator to bake.");
-            
-            public static readonly GUILayoutOption mappingWidth = GUILayout.Width(150f);
-            public static readonly GUIContent animation = new GUIContent("Clip");
-            public static readonly GUIContent frameRate = new GUIContent("Frame Rate");
-            
-            public static readonly GUIContent originalMaterial = new GUIContent("Original");
-            public static readonly GUIContent instancedMaterial = new GUIContent("Instanced");
-
-            public static readonly GUIContent vertexCompression = new GUIContent("Compression", "Reduces the size of the mesh in memory.");
-
-            public static readonly GUIContent directory = new GUIContent("Directory", "The directory to save the baked data in.");
-            public static readonly GUILayoutOption directoryMinWidth = GUILayout.MinWidth(0f);
-            public static readonly GUIContent directorySelector = new GUIContent("\u2299", "Select a directory.");
-            public static readonly GUILayoutOption directorySelectorWidth = GUILayout.Width(22f);
-
-            public static readonly GUIContent bakeButton = new GUIContent("Bake");
-            public static readonly GUILayoutOption[] bakeButtonSize = { GUILayout.Width(150f) , GUILayout.Height(25f) };
-        }
+        const string k_assetsPath = "Assets/";
 
         [SerializeField]
         Vector2 m_scroll = Vector2.zero;
 
         [SerializeField]
-        Animator m_animator = null;
+        Animator m_animator;
+
         [SerializeField]
-        SerializableDictionary<AnimationClip, float> m_frameRates = null;
+        SerializableDictionary<AnimationClip, float> m_frameRates;
+
         [SerializeField]
-        SerializableDictionary<Material, Material> m_materialRemap = null;
+        SerializableDictionary<Material, Material> m_materialRemap;
+
         [SerializeField]
         VertexCompression m_vertexCompression = VertexCompression.High;
-        [SerializeField]
-        string m_path = k_AssetsPath;
 
-        [MenuItem("Framework/Animation/Instanced Animation Baker")]
-        static void ShowWindow()
-        {
-            var window = GetWindow(typeof(InstancedAnimationWindow), false, "Instanced Animation Baker", true) as InstancedAnimationWindow;
-            window.minSize = new Vector2(300, 350);
-            window.maxSize = new Vector2(600, 2000);
-            window.Show();
-        }
+        [SerializeField]
+        string m_path = k_assetsPath;
 
         void OnEnable()
         {
@@ -107,13 +77,29 @@ namespace InstancedAnimation
             }
         }
 
+        [MenuItem("Window/Animation/Instanced Animation Baker")]
+        static void ShowWindow()
+        {
+            var window =
+                GetWindow(
+                    typeof(InstancedAnimationWindow),
+                    false,
+                    "Instanced Animation Baker",
+                    true
+                ) as InstancedAnimationWindow;
+            window.minSize = new Vector2(300, 350);
+            window.maxSize = new Vector2(600, 2000);
+            window.Show();
+        }
+
         void Input()
         {
             EditorGUILayout.LabelField("Input", EditorStyles.boldLabel);
 
             using (var change = new EditorGUI.ChangeCheckScope())
             {
-                var animator = EditorGUILayout.ObjectField(Contents.animator, m_animator, typeof(Animator), true) as Animator;
+                var animator =
+                    EditorGUILayout.ObjectField(Contents.animator, m_animator, typeof(Animator), true) as Animator;
 
                 if (change.changed)
                 {
@@ -158,7 +144,13 @@ namespace InstancedAnimation
 
                     using (new EditorGUI.DisabledGroupScope(true))
                     {
-                        EditorGUILayout.ObjectField(GUIContent.none, animation, typeof(AnimationClip), false, Contents.mappingWidth);
+                        EditorGUILayout.ObjectField(
+                            GUIContent.none,
+                            animation,
+                            typeof(AnimationClip),
+                            false,
+                            Contents.mappingWidth
+                        );
                     }
 
                     var currentRate = Mathf.RoundToInt(frameRate);
@@ -205,10 +197,22 @@ namespace InstancedAnimation
                 {
                     using (new EditorGUI.DisabledGroupScope(true))
                     {
-                        EditorGUILayout.ObjectField(GUIContent.none, originalMat, typeof(Material), false, Contents.mappingWidth);
+                        EditorGUILayout.ObjectField(
+                            GUIContent.none,
+                            originalMat,
+                            typeof(Material),
+                            false,
+                            Contents.mappingWidth
+                        );
                     }
 
-                    var newMat = EditorGUILayout.ObjectField(GUIContent.none, remappedMat, typeof(Material), false, GUILayout.MinWidth(0f)) as Material;
+                    var newMat = EditorGUILayout.ObjectField(
+                        GUIContent.none,
+                        remappedMat,
+                        typeof(Material),
+                        false,
+                        GUILayout.MinWidth(0f)
+                    ) as Material;
 
                     if (change.changed)
                     {
@@ -233,7 +237,10 @@ namespace InstancedAnimation
 
             using (var change = new EditorGUI.ChangeCheckScope())
             {
-                var compression = (VertexCompression)EditorGUILayout.EnumPopup(Contents.vertexCompression, m_vertexCompression);
+                var compression = (VertexCompression) EditorGUILayout.EnumPopup(
+                    Contents.vertexCompression,
+                    m_vertexCompression
+                );
 
                 if (change.changed)
                 {
@@ -258,13 +265,17 @@ namespace InstancedAnimation
 
                 var path = GUILayout.TextField(m_path, Contents.directoryMinWidth);
 
-                if (GUILayout.Button(Contents.directorySelector, EditorStyles.miniButton, Contents.directorySelectorWidth))
+                if (GUILayout.Button(
+                    Contents.directorySelector,
+                    EditorStyles.miniButton,
+                    Contents.directorySelectorWidth
+                ))
                 {
                     path = EditorUtility.SaveFolderPanel("Choose Output Directory", path, string.Empty);
 
                     if (!string.IsNullOrWhiteSpace(path))
                     {
-                        var index = path.IndexOf(k_AssetsPath);
+                        var index = path.IndexOf(k_assetsPath);
 
                         if (index >= 0)
                         {
@@ -272,7 +283,7 @@ namespace InstancedAnimation
                         }
                         else
                         {
-                            path = k_AssetsPath;
+                            path = k_assetsPath;
                         }
                     }
 
@@ -318,6 +329,7 @@ namespace InstancedAnimation
                 {
                     EditorGUILayout.HelpBox("Can't bake animations while in play mode.", MessageType.Warning);
                 }
+
                 return false;
             }
 
@@ -327,6 +339,7 @@ namespace InstancedAnimation
                 {
                     EditorGUILayout.HelpBox("An animator is required.", MessageType.Info);
                 }
+
                 return false;
             }
 
@@ -339,6 +352,7 @@ namespace InstancedAnimation
                 {
                     EditorGUILayout.HelpBox("The selected animator has no skinned meshes.", MessageType.Warning);
                 }
+
                 canBake = false;
             }
             else
@@ -356,16 +370,25 @@ namespace InstancedAnimation
                         {
                             if (drawMessages)
                             {
-                                EditorGUILayout.HelpBox($"Mesh \"{mesh.name}\" has a submesh with {topology} topology. Only triangle meshes are supported.", MessageType.Warning);
+                                EditorGUILayout.HelpBox(
+                                    $"Mesh \"{mesh.name}\" has a submesh with {topology} topology. Only triangle meshes are supported.",
+                                    MessageType.Warning
+                                );
                             }
+
                             canBake = false;
                         }
+
                         if (indexFormat != IndexFormat.UInt16)
                         {
                             if (drawMessages)
                             {
-                                EditorGUILayout.HelpBox($"Mesh \"{mesh.name}\" uses index format {indexFormat}. Only 16 bit indices supported.", MessageType.Warning);
+                                EditorGUILayout.HelpBox(
+                                    $"Mesh \"{mesh.name}\" uses index format {indexFormat}. Only 16 bit indices supported.",
+                                    MessageType.Warning
+                                );
                             }
+
                             canBake = false;
                         }
                     }
@@ -377,8 +400,12 @@ namespace InstancedAnimation
                     {
                         if (drawMessages)
                         {
-                            EditorGUILayout.HelpBox($"Renderer \"{renderer.name}\" has {matCount} material{(matCount != 1 ? "s" : "")} assigned but \"mesh\" {mesh.name} has {subCount} submesh{(subCount != 1 ? "es" : "")}. These must be equal.", MessageType.Warning);
+                            EditorGUILayout.HelpBox(
+                                $"Renderer \"{renderer.name}\" has {matCount} material{(matCount != 1 ? "s" : "")} assigned but \"mesh\" {mesh.name} has {subCount} submesh{(subCount != 1 ? "es" : "")}. These must be equal.",
+                                MessageType.Warning
+                            );
                         }
+
                         canBake = false;
                     }
 
@@ -388,8 +415,12 @@ namespace InstancedAnimation
                         {
                             if (drawMessages)
                             {
-                                EditorGUILayout.HelpBox($"Renderer \"{renderer.name}\" has a null material. Assign a suitable material.", MessageType.Warning);
+                                EditorGUILayout.HelpBox(
+                                    $"Renderer \"{renderer.name}\" has a null material. Assign a suitable material.",
+                                    MessageType.Warning
+                                );
                             }
+
                             canBake = false;
                         }
                     }
@@ -405,8 +436,12 @@ namespace InstancedAnimation
                     {
                         if (drawMessages)
                         {
-                            EditorGUILayout.HelpBox($"Material \"{originalMat.name}\" must be remapped. Assign a material with a shader that supports instanced animation.", MessageType.Warning);
+                            EditorGUILayout.HelpBox(
+                                $"Material \"{originalMat.name}\" must be remapped. Assign a material with a shader that supports instanced animation.",
+                                MessageType.Warning
+                            );
                         }
+
                         canBake = false;
                     }
                 }
@@ -418,8 +453,12 @@ namespace InstancedAnimation
             {
                 if (drawMessages)
                 {
-                    EditorGUILayout.HelpBox("The selected animator must have an animator controller assigned.", MessageType.Warning);
+                    EditorGUILayout.HelpBox(
+                        "The selected animator must have an animator controller assigned.",
+                        MessageType.Warning
+                    );
                 }
+
                 canBake = false;
             }
             else
@@ -430,8 +469,12 @@ namespace InstancedAnimation
                 {
                     if (drawMessages)
                     {
-                        EditorGUILayout.HelpBox("The assigned animator controller has no animations.", MessageType.Warning);
+                        EditorGUILayout.HelpBox(
+                            "The assigned animator controller has no animations.",
+                            MessageType.Warning
+                        );
                     }
+
                     canBake = false;
                 }
             }
@@ -447,6 +490,37 @@ namespace InstancedAnimation
                 .Where(m => m != null)
                 .Distinct()
                 .ToArray();
+        }
+
+        static class Contents
+        {
+            public static readonly float spacing = 21f;
+
+            public static readonly GUIContent animator = new GUIContent("Animator", "The animator to bake.");
+
+            public static readonly GUILayoutOption mappingWidth = GUILayout.Width(150f);
+            public static readonly GUIContent animation = new GUIContent("Clip");
+            public static readonly GUIContent frameRate = new GUIContent("Frame Rate");
+
+            public static readonly GUIContent originalMaterial = new GUIContent("Original");
+            public static readonly GUIContent instancedMaterial = new GUIContent("Instanced");
+
+            public static readonly GUIContent vertexCompression = new GUIContent(
+                "Compression",
+                "Reduces the size of the mesh in memory."
+            );
+
+            public static readonly GUIContent directory = new GUIContent(
+                "Directory",
+                "The directory to save the baked data in."
+            );
+
+            public static readonly GUILayoutOption directoryMinWidth = GUILayout.MinWidth(0f);
+            public static readonly GUIContent directorySelector = new GUIContent("\u2299", "Select a directory.");
+            public static readonly GUILayoutOption directorySelectorWidth = GUILayout.Width(22f);
+
+            public static readonly GUIContent bakeButton = new GUIContent("Bake");
+            public static readonly GUILayoutOption[] bakeButtonSize = {GUILayout.Width(150f), GUILayout.Height(25f)};
         }
     }
 }

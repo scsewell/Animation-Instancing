@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System;
+using System.Runtime.InteropServices;
 
 using Unity.Collections;
 using Unity.Jobs;
@@ -10,7 +11,7 @@ using UnityEngine.PlayerLoop;
 using UnityEngine.Profiling;
 using System.Collections.Generic;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
     /// A class that manages the rendering of all instanced meshes. 
@@ -29,14 +30,6 @@ namespace InstancedAnimation
             public uint instanceStart;
         }
 
-        struct RendererData
-        {
-            public Mesh mesh;
-            public int subMeshIndex;
-            public Material material;
-            public MaterialPropertyBlock propertyBlock;
-        }
-
         static bool s_resourcesInitialized;
         static InstancingResources s_resources;
         static ComputeShader s_cullingShader;
@@ -48,7 +41,7 @@ namespace InstancedAnimation
         static int s_compactKernel;
 
         static CommandBuffer s_cullingCmdBuffer;
-        static ComputeBuffer s_meshDataBuffer;
+        static ComputeBuffer s_lodDataBuffer;
         static ComputeBuffer s_animationDataBuffer;
         static ComputeBuffer s_instanceDataBuffer;
         static ComputeBuffer s_drawArgsBuffer;
@@ -131,24 +124,65 @@ namespace InstancedAnimation
             }
         }
 
+        struct ProviderState
+        {
+            public IInstanceProvider provider;
+            public int lodIndex;
+        }
+
         //static int s_instanceProviderCounter;
-        static readonly List<IInstanceProvider> s_instanceProviders = new List<IInstanceProvider>();
-        static NativeArray<MeshData> s_meshData;
+        static readonly List<ProviderState> s_providersStates = new List<ProviderState>();
         static NativeArray<DrawArgs> s_drawArgs;
         static NativeArray<AnimationData> s_animationData;
         static NativeArray<InstanceData> s_instanceData;
 
+        /// <summary>
+        /// Registers an instance provider to the instance manager so its instances will be rendered.
+        /// </summary>
+        /// <param name="provider">The provider to register.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="provider"/> is null.</exception>
         public void RegisterInstanceProvider(IInstanceProvider provider)
         {
-            if (s_instanceProviders.Contains(provider))
+            if (provider == null)
             {
-                s_instanceProviders.Add(provider);
+                throw new ArgumentNullException(nameof(provider));
             }
+            
+            // prevent duplicate registration
+            for (var i = 0; i < s_providersStates.Count; i++)
+            {
+                if (s_providersStates[i].provider == provider)
+                {
+                    return;
+                }
+            }
+            
+            s_providersStates.Add(new ProviderState
+            {
+                provider = provider,
+            });
         }
 
+        /// <summary>
+        /// Deregisters an instance provider from the instance manager so its instances are no longer rendered.
+        /// </summary>
+        /// <param name="provider">The provider to deregister.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="provider"/> is null.</exception>
         public void DeregisterInstanceProvider(IInstanceProvider provider)
         {
-            s_instanceProviders.Remove(provider);
+            if (provider == null)
+            {
+                throw new ArgumentNullException(nameof(provider));
+            }
+
+            for (var i = 0; i < s_providersStates.Count; i++)
+            {
+                if (s_providersStates[i].provider == provider)
+                {
+                    s_providersStates.RemoveAt(i);
+                    return;
+                }
+            }
         }
 
         static void Update()
@@ -158,12 +192,17 @@ namespace InstancedAnimation
                 return;
             }
 
-            // count the total number of instances to render this frame
+            // Count the total number of instances to render this frame while
+            // checking which buffers need to be updated, if any.
             var instanceCount = 0;
-
-            for (var i = 0; i < s_instanceProviders.Count; i++)
+            var dirtyFlags = DirtyFlags.None;
+            
+            for (var i = 0; i < s_providersStates.Count; i++)
             {
-                var provider = s_instanceProviders[i];
+                var state = s_providersStates[i];
+                var provider = state.provider;
+                
+                dirtyFlags |= provider.DirtyFlags;
                 instanceCount += provider.InstanceCount;
             }
 
@@ -172,14 +211,10 @@ namespace InstancedAnimation
                 return;
             }
 
-            // update the instance data if it has changed
-
-
-
-            for (var i = 0; i < s_instanceProviders.Count; i++)
+            // update any buffers whose data is invalidated
+            if (dirtyFlags.Contains(DirtyFlags.Mesh))
             {
-                var provider = s_instanceProviders[i];
-                instanceCount += provider.InstanceCount;
+                UpdateMeshBuffers();
             }
 
             // render the instances for each camera
@@ -196,42 +231,77 @@ namespace InstancedAnimation
             Profiler.EndSample();
         }
 
+        static void UpdateMeshBuffers()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateMeshBuffers)}");
+
+            // get the lod data for all instanced meshes
+            var lods = new NativeArray<LodData>(s_providersStates.Count, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            
+            for (var i = 0; i < s_providersStates.Count; i++)
+            {
+                var state = s_providersStates[i];
+                var provider = state.provider;
+
+                lods[i] = provider.Mesh.Lods;
+                state.lodIndex = i;
+
+                s_providersStates[i] = state;
+            }
+            
+            // create a new buffer if the previous one was too small
+            if (s_lodDataBuffer == null || s_lodDataBuffer.count < lods.Length)
+            {
+                Dispose(ref s_lodDataBuffer);
+            
+                s_lodDataBuffer = new ComputeBuffer(lods.Length, LodData.k_size)
+                {
+                    name = $"{nameof(InstancingManager)}_MeshData",
+                };
+            }
+            
+            s_lodDataBuffer.SetData(lods, 0, 0, lods.Length);
+            lods.Dispose();
+            
+            Profiler.EndSample();
+        }
+        
         static void CreateBuffers()
         {
             //s_meshDataBuffer = new ComputeBuffer(, MeshData.k_size)
             //{
-            //    name = $"{nameof(InstancingManager)}MeshData",
+            //    name = $"{nameof(InstancingManager)}_MeshData",
             //};
             //s_drawArgsBuffer = new ComputeBuffer(, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
             //{
-            //    name = $"{nameof(InstancingManager)}DrawArgs",
+            //    name = $"{nameof(InstancingManager)}_DrawArgs",
             //};
 
             //s_animationDataBuffer = new ComputeBuffer(, AnimationData.k_size)
             //{
-            //    name = $"{nameof(InstancingManager)}AnimationData",
+            //    name = $"{nameof(InstancingManager)}_AnimationData",
             //};
 
             //s_instanceDataBuffer = new ComputeBuffer(count, InstanceData.k_size)
             //{
-            //    name = $"{nameof(InstancingManager)}InstanceData",
+            //    name = $"{nameof(InstancingManager)}_InstanceData",
             //};
             //s_isVisibleBuffer = new ComputeBuffer(count, sizeof(uint))
             //{
-            //    name = $"{nameof(InstancingManager)}IsVisible",
+            //    name = $"{nameof(InstancingManager)}_IsVisible",
             //};
             //s_isVisibleScanInBucketBuffer = new ComputeBuffer(count, sizeof(uint))
             //{
-            //    name = $"{nameof(InstancingManager)}isVisibleScanInBucket",
+            //    name = $"{nameof(InstancingManager)}_isVisibleScanInBucket",
             //};
             //s_instanceDataBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
             //{
-            //    name = $"{nameof(InstancingManager)}InstanceData",
+            //    name = $"{nameof(InstancingManager)}_InstanceData",
             //};
 
             //s_isVisibleScanAcrossBucketsBuffer = new ComputeBuffer(, sizeof(uint))
             //{
-            //    name = $"{nameof(InstancingManager)}isVisibleScanAcrossBuckets",
+            //    name = $"{nameof(InstancingManager)}_isVisibleScanAcrossBuckets",
             //};
         }
 
@@ -282,7 +352,7 @@ namespace InstancedAnimation
             // create the command buffers
             s_cullingCmdBuffer = new CommandBuffer
             {
-                name = $"InstanceCulling",
+                name = $"{nameof(InstancingManager)}_InstanceCulling",
             };
 
             s_resourcesInitialized = true;
@@ -314,7 +384,7 @@ namespace InstancedAnimation
             Dispose(ref s_cullingCmdBuffer);
 
             // destroy compute buffers
-            Dispose(ref s_meshDataBuffer);
+            Dispose(ref s_lodDataBuffer);
             Dispose(ref s_animationDataBuffer);
             Dispose(ref s_instanceDataBuffer);
             Dispose(ref s_drawArgsBuffer);

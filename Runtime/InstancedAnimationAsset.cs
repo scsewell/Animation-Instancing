@@ -2,12 +2,12 @@
 
 using UnityEngine;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
     /// An asset that stores content that can be played back using instanced animation.
     /// </summary>
-    [CreateAssetMenu(fileName = "New InstancedAnimation", menuName = "Framework/Animation/Instanced Animation")]
+    [CreateAssetMenu(fileName = "New InstancedAnimation", menuName = "Instanced Animation/Animation", order = 410)]
     public class InstancedAnimationAsset : ScriptableObject
     {
         [SerializeField]
@@ -20,7 +20,7 @@ namespace InstancedAnimation
 
         [SerializeField]
         [Tooltip("The animations in the animation texture.")]
-        Animation[] m_animations;
+        InstancedAnimation[] m_animations;
 
         /// <summary>
         /// The meshes that can be used when playing the animation.
@@ -35,7 +35,7 @@ namespace InstancedAnimation
         /// <summary>
         /// The animations in the animation texture.
         /// </summary>
-        public Animation[] Animations => m_animations;
+        public InstancedAnimation[] Animations => m_animations;
 
         /// <summary>
         /// Creates a <see cref="InstancedAnimationAsset"/> instance.
@@ -43,7 +43,7 @@ namespace InstancedAnimation
         /// <param name="meshes">The meshes that can be used when playing the animations.</param>
         /// <param name="texture">The texture containing the animation data.</param>
         /// <param name="animations">The animations in the animation texture.</param>
-        public static InstancedAnimationAsset Create(InstancedMesh[] meshes, Texture2D texture, Animation[] animations)
+        public static InstancedAnimationAsset Create(InstancedMesh[] meshes, Texture2D texture, InstancedAnimation[] animations)
         {
             if (meshes == null)
             {

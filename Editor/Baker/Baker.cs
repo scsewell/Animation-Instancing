@@ -4,7 +4,7 @@ using UnityEditor;
 
 using UnityEngine;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     public enum VertexCompression
     {
@@ -26,18 +26,18 @@ namespace InstancedAnimation
 
     public partial class Baker
     {
+        readonly List<InstancedAnimation> m_animations = new List<InstancedAnimation>();
         readonly BakeConfig m_config;
 
         readonly List<InstancedMesh> m_meshes = new List<InstancedMesh>();
-        readonly List<Animation> m_animations = new List<Animation>();
         Texture2D m_animationTexture;
+        Matrix4x4[] m_bindPoses;
 
         Transform[] m_bones;
-        Matrix4x4[] m_bindPoses;
         Dictionary<SkinnedMeshRenderer, Dictionary<int, int>> m_renderIndexMaps;
 
         /// <summary>
-        /// Creates a baker instance.
+        ///     Creates a baker instance.
         /// </summary>
         /// <param name="config">The description of the data to bake.</param>
         public Baker(BakeConfig config)
@@ -46,10 +46,12 @@ namespace InstancedAnimation
         }
 
         /// <summary>
-        /// Bakes the animations.
+        ///     Bakes the animations.
         /// </summary>
-        /// <param name="assetPath">The path starting from and including the assets folder
-        /// under which to save the animation data.</param>
+        /// <param name="assetPath">
+        ///     The path starting from and including the assets folder
+        ///     under which to save the animation data.
+        /// </param>
         /// <returns>True if the operation was cancelled.</returns>
         public bool Bake(string assetPath)
         {
@@ -59,6 +61,7 @@ namespace InstancedAnimation
             {
                 return true;
             }
+
             if (BakeAnimations())
             {
                 return true;
@@ -75,7 +78,11 @@ namespace InstancedAnimation
                 // create the asset
                 EditorUtility.DisplayProgressBar("Creating Asset", string.Empty, 1f);
 
-                var asset = InstancedAnimationAsset.Create(m_meshes.ToArray(), m_animationTexture, m_animations.ToArray());
+                var asset = InstancedAnimationAsset.Create(
+                    m_meshes.ToArray(),
+                    m_animationTexture,
+                    m_animations.ToArray()
+                );
 
                 // Save the generated asset and meshes. The asset file extention is special and is recognized by unity.
                 var uniquePath = AssetDatabase.GenerateUniqueAssetPath($"{assetPath}/{m_config.animator.name}.asset");
@@ -85,6 +92,7 @@ namespace InstancedAnimation
                 {
                     AssetDatabase.AddObjectToAsset(mesh.Mesh, asset);
                 }
+
                 AssetDatabase.AddObjectToAsset(m_animationTexture, asset);
 
                 AssetDatabase.SaveAssets();

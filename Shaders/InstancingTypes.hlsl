@@ -1,11 +1,10 @@
 ﻿#ifndef ANIMATION_INSTANCING_TYPES_INCLUDED
 #define ANIMATION_INSTANCING_TYPES_INCLUDED
 
-struct MeshData
+struct LodData
 {
-    uint argsIndex;
     uint lodCount;
-    float lodDistances[ANIMATION_INSTANCING_MAX_LOD_COUNT];
+    float screenHeights[ANIMATION_INSTANCING_MAX_LOD_COUNT];
 };
 
 struct Bounds
@@ -26,8 +25,9 @@ struct InstanceData
     float3 position;
     float4 rotation;
     float3 scale;
-    uint meshIndex;
-    uint animationStartIndex;
+    uint lodIndex; // pack the indices to save space
+    uint argsIndex;
+    uint animationBase;  // pack the indices to save space
     uint animationIndex;
     float animationTime;
 };

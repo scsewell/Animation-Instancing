@@ -8,7 +8,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     partial class Baker
     {
@@ -274,7 +274,7 @@ namespace InstancedAnimation
                 indices.Dispose();
                 subMeshes.Dispose();
 
-                m_meshes.Add(new InstancedMesh(combinedMesh, GetLods()));
+                m_meshes.Add(new InstancedMesh(combinedMesh, 1, GetLods()));
                 return false;
             }
             finally
@@ -287,10 +287,7 @@ namespace InstancedAnimation
         {
             if (m_config.lod == null)
             {
-                return new LodInfo[]
-                {
-                    new LodInfo(0, 0f),
-                };
+                return null;
             }
 
             var lodGroup = m_config.lod.GetLODs();
@@ -298,7 +295,7 @@ namespace InstancedAnimation
 
             for (var i = 0; i < lods.Length; i++)
             {
-                lods[i] = new LodInfo(i, lodGroup[i].screenRelativeTransitionHeight);
+                lods[i] = new LodInfo(lodGroup[i].screenRelativeTransitionHeight);
             }
 
             return lods;

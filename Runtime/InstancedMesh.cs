@@ -2,100 +2,120 @@
 
 using UnityEngine;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
-    /// A struct describing the lod for an instanced mesh.
+    /// A struct describing the lod properties for a sub mesh.
     /// </summary>
     [Serializable]
     public struct LodInfo
     {
         [SerializeField]
-        [Tooltip("The index of the lod sub mesh in the mesh.")]
-        int m_subMesh;
-
-        [SerializeField]
-        [Tooltip("The screen relative height under which this lod is used.")]
+        [Tooltip("The screen relative height of the mesh above which the lod is active.")]
         [Range(0f, 1f)]
         float m_screenHeight;
 
         /// <summary>
-        /// The index of the lod sub mesh in the mesh.
-        /// </summary>
-        public int SubMesh => m_subMesh;
-
-        /// <summary>
-        /// The screen relative height above which this lod is used, in the range [0,1].
-        /// </summary>
-        public float ScreenHeight => m_screenHeight;
-
-        /// <summary>
         /// Creates a new <see cref="LodInfo"/> instance.
         /// </summary>
-        /// <param name="subMesh">The index of the lod sub mesh in the mesh.</param>
-        /// <param name="screenSize">The screen height above which this lod is used. Must be in the range [0,1].</param>
-        public LodInfo(int subMesh, float screenSize)
+        /// <param name="screenSize">
+        /// The screen relative height of the mesh above which the lod is active.
+        /// Must be in the range [0,1].
+        /// </param>
+        public LodInfo(float screenSize)
         {
-            if (subMesh < -1)
-            {
-                throw new ArgumentOutOfRangeException(nameof(subMesh), subMesh, "Must be -1 or greater!");
-            }
             if (screenSize < 0f || 1f < screenSize)
             {
                 throw new ArgumentOutOfRangeException(nameof(screenSize), screenSize, "Must be in range [0,1]!");
             }
 
-            m_subMesh = subMesh;
             m_screenHeight = screenSize;
         }
+
+        /// <summary>
+        /// The screen relative height of the mesh above which the lod is active, in the range [0,1].
+        /// </summary>
+        public float ScreenHeight => m_screenHeight;
     }
 
     /// <summary>
-    /// A struct containing an instanceable animated mesh.
+    /// A struct containing a mesh prepared for instancing.
     /// </summary>
     [Serializable]
     public struct InstancedMesh
     {
         [SerializeField]
-        [Tooltip("The mesh to instance, with lods packed into the submeshes.")]
+        [Tooltip("The mesh to instance, with lods packed into the sub meshes.")]
         Mesh m_mesh;
 
         [SerializeField]
-        [Tooltip("The lods to use when rendering the mesh.")]
-        LodInfo[] m_lods;
+        [Tooltip("The number of sub meshes, excluding the lods.")]
+        int m_subMeshCount;
 
-        /// <summary>
-        /// The mesh to instance, with lods packed into the submeshes.
-        /// </summary>
-        public Mesh Mesh => m_mesh;
-
-        /// <summary>
-        /// The lods to use when rendering the mesh.
-        /// </summary>
-        public LodInfo[] Lods => m_lods;
+        [SerializeField]
+        [Tooltip("The lod levels of the mesh.")]
+        LodData m_lods;
 
         /// <summary>
         /// Creates a new <see cref="InstancedMesh"/> instance.
         /// </summary>
-        /// <param name="mesh">The mesh to instance, with lods packed into the sub meshes.</param>
-        /// <param name="lods">The lods to use when rendering the mesh.</param>
-        public InstancedMesh(Mesh mesh, LodInfo[] lods)
+        /// <param name="mesh">
+        /// The mesh to instance, with the lods for each sub mesh also stored as sub meshes. The lods
+        /// for a sub mesh are stored in sequential sub meshes, followed by other sub meshes and their lods.
+        /// </param>
+        /// <param name="subMeshCount">The number of sub meshes, excluding any lods.</param>
+        /// <param name="lods">The lod levels of the mesh ordered by decreasing detail. If null or empty no lods will be used.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="mesh"/> is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="subMeshCount"/> is less than zero.</exception>
+        /// <exception cref="ArgumentException">
+        /// Thrown if the number of sub meshes in the mesh is not a multiple of <paramref name="subMeshCount"/> and the number of
+        /// lods in <paramref name="lods"/>.
+        /// </exception>
+        public unsafe InstancedMesh(Mesh mesh, int subMeshCount, LodInfo[] lods)
         {
             if (mesh == null)
             {
                 throw new ArgumentNullException(nameof(mesh));
             }
-            if (lods == null)
+            if (subMeshCount < 0)
             {
-                throw new ArgumentNullException(nameof(lods));
+                throw new ArgumentOutOfRangeException(nameof(subMeshCount), subMeshCount, "Cannot be negative!");
             }
-            if (lods.Length != mesh.subMeshCount)
+            if (lods != null && lods.Length * subMeshCount != mesh.subMeshCount)
             {
-                throw new ArgumentException(nameof(lods), $"{lods.Length} lods are specified but mesh has {mesh.subMeshCount} sub meshes.");
+                throw new ArgumentException(
+                    nameof(lods),
+                    $"The number of sub meshes in mesh \"{mesh.name}\" ({mesh.subMeshCount}) must be the multiple of the sub mesh count ({subMeshCount}) and LODs ({lods.Length})."
+                );
+            }
+
+            var lod = new LodData
+            {
+                lodCount = (uint)(lods != null ? Mathf.Min(lods.Length, Constants.k_MaxLodCount) : 0),
+            };
+            for (var i = 0; i < lod.lodCount; i++)
+            {
+                lod.screenHeights[i] = lods[i].ScreenHeight;
             }
 
             m_mesh = mesh;
-            m_lods = lods;
+            m_subMeshCount = subMeshCount;
+            m_lods = lod;
         }
+
+        /// <summary>
+        /// The mesh to instance, with lods packed into the sub meshes.
+        /// </summary>
+        internal Mesh Mesh => m_mesh;
+
+        /// <summary>
+        /// The number of sub meshes, excluding the lods.
+        /// </summary>
+        internal int SubMeshCount => m_subMeshCount;
+
+        /// <summary>
+        /// The lod levels of the mesh.
+        /// </summary>
+        internal LodData Lods => m_lods;
     }
 }

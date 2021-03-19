@@ -1,6 +1,6 @@
 ﻿using Unity.Mathematics;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
     /// A struct that stoers the transform of a single instance.

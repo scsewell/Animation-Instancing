@@ -1,10 +1,10 @@
 {
-    "name": "InstancedAnimation",
-    "rootNamespace": "InstancedAnimation",
+    "name": "AnimationInstancing",
+    "rootNamespace": "AnimationInstancing",
     "references": [
         "Unity.RenderPipelines.Core.Runtime",
-        "Unity.Mathematics",
-        "Unity.Burst"
+        "Unity.Burst",
+        "Unity.Mathematics"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

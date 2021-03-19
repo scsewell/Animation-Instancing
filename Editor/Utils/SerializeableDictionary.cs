@@ -4,7 +4,7 @@ using System.Runtime.Serialization;
 
 using UnityEngine;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     [Serializable]
     class SerializableDictionary<TKey, TValue> : Dictionary<TKey, TValue>, ISerializationCallbackReceiver

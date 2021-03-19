@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
     /// A class containing constant values.
@@ -21,6 +21,7 @@ namespace InstancedAnimation
         // these use a cbuffer
         //public static readonly int _ViewProj = Shader.PropertyToID("_ViewProj");
         //public static readonly int _CameraPosition = Shader.PropertyToID("_CameraPosition");
+        //public static readonly int _CameraTanFov = Shader.PropertyToID("_CameraTanFov");
         //public static readonly int _LodBias = Shader.PropertyToID("_LodBias");
 
         // culling properties

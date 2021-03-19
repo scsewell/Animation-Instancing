@@ -6,7 +6,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     partial class Baker
     {
@@ -66,7 +66,7 @@ namespace InstancedAnimation
 
                     var bounds = BakeAnimation(texture, size, animation, region);
 
-                    m_animations.Add(new Animation(region, animation.length, bounds));
+                    m_animations.Add(new InstancedAnimation(region, animation.length, bounds));
                 }
 
                 // create the animation texture

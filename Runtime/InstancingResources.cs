@@ -1,11 +1,11 @@
 ﻿using UnityEngine;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
     /// An asset that contains referenced to required resources.
     /// </summary>
-    [CreateAssetMenu(fileName = "New InstancingResources", menuName = "Framework/Animation/Resources")]
+    [CreateAssetMenu(fileName = "New InstancingResources", menuName = "Instanced Animation/Resources", order = 410)]
     class InstancingResources : ScriptableObject
     {
         [SerializeField]

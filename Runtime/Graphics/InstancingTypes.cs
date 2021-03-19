@@ -1,21 +1,22 @@
-﻿using System.Runtime.InteropServices;
+﻿using System;
+using System.Runtime.InteropServices;
 
 using Unity.Mathematics;
 
 using UnityEngine;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     // This file is kept in sync with InstancingTypes.hlsl
 
+    [Serializable]
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    unsafe struct MeshData
+    unsafe struct LodData
     {
-        public static readonly int k_size = Marshal.SizeOf<MeshData>();
+        public static readonly int k_size = Marshal.SizeOf<LodData>();
 
-        public uint argsIndex;
         public uint lodCount;
-        public fixed float lodDistances[Constants.k_MaxLodCount];
+        public fixed float screenHeights[Constants.k_MaxLodCount];
     };
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -36,8 +37,9 @@ namespace InstancedAnimation
         public float3 position;
         public quaternion rotation;
         public float3 scale;
-        public uint meshIndex;
-        public uint animationStartIndex;
+        public uint lodIndex;
+        public uint argsIndex;
+        public uint animationBase;
         public uint animationIndex;
         public float animationTime;
     };

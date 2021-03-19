@@ -1,6 +1,6 @@
 ﻿using UnityEngine.LowLevel;
 
-namespace InstancedAnimation
+namespace AnimationInstancing
 {
     /// <summary>
     /// A class that contains extension methods used to modify the player loop.

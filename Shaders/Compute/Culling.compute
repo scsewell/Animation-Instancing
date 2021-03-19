@@ -6,10 +6,11 @@
 CBUFFER_START(CullingPropertyBuffer)
 float4x4 _ViewProj;
 float3 _CameraPosition;
+float3 _CameraTanFov;
 float _LodBias;
 CBUFFER_END
 
-StructuredBuffer<MeshData> _MeshData;
+StructuredBuffer<LodData> _LodData;
 StructuredBuffer<AnimationData> _AnimationData;
 StructuredBuffer<InstanceData> _InstanceData;
 
@@ -35,12 +36,17 @@ uint IsOutsideBounds(float3 pos, float3 center, float3 extents)
     return dot(disp, disp) > dot(extents, extents);
 }
 
+float ScreenHeightToDistance(float screenHeight)
+{
+    return _CameraTanFov * screenHeight;
+}
+
 [numthreads(64, 1, 1)]
 void CSMain(uint tID : SV_DispatchThreadID)
 {
     InstanceData instance = _InstanceData[tID];
-    MeshData mesh = _MeshData[instance.meshIndex];
-    AnimationData animation = _AnimationData[instance.animationStartIndex + instance.animationIndex];
+    LodData lod = _LodData[instance.lodIndex];
+    AnimationData animation = _AnimationData[instance.animationBase + instance.animationIndex];
 
     // calculate the local to world matrix and mvp for the instance
     float4x4 modelMat = TRS(instance.position, instance.rotation, instance.scale);
@@ -77,18 +83,18 @@ void CSMain(uint tID : SV_DispatchThreadID)
     if (IsOutsideBounds(_CameraPosition, worldCenter, scaledExtents))
     {
         isVisible *= isInFrustum;
-        isVisible *= distanceToCamera < mesh.lodDistances[mesh.lodCount - 1];
+        isVisible *= distanceToCamera < ScreenHeightToDistance(lod.screenHeights[lod.lodCount - 1]);
     }
 
     // mark the instance as visible
     _IsVisible[tID] = isVisible;
 
-    uint argsIndex = mesh.argsIndex;
+    uint argsIndex = instance.argsIndex;
 
     UNITY_UNROLL
-    for (uint lod = 0; lod < ANIMATION_INSTANCING_MAX_LOD_COUNT; lod++)
+    for (uint l = 0; l < ANIMATION_INSTANCING_MAX_LOD_COUNT; l++)
     {
-        argsIndex += distanceToCamera > mesh.lodDistances[lod];
+        argsIndex += distanceToCamera > ScreenHeightToDistance(lod.screenHeights[l]);
     }
 
     InterlockedAdd(_DrawArgs[argsIndex], isVisible);
