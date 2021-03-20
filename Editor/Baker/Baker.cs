@@ -79,9 +79,8 @@ namespace AnimationInstancing
                 EditorUtility.DisplayProgressBar("Creating Asset", string.Empty, 1f);
 
                 var asset = InstancedAnimationAsset.Create(
-                    m_meshes.ToArray(),
-                    m_animationTexture,
-                    m_animations.ToArray()
+                    new InstancedAnimationSet(m_animationTexture, m_animations.ToArray()),
+                    m_meshes.ToArray()
                 );
 
                 // Save the generated asset and meshes. The asset file extention is special and is recognized by unity.

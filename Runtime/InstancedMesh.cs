@@ -7,13 +7,12 @@ namespace AnimationInstancing
     /// <summary>
     /// A struct describing the lod properties for a sub mesh.
     /// </summary>
-    [Serializable]
-    public struct LodInfo
+    public readonly struct LodInfo
     {
-        [SerializeField]
-        [Tooltip("The screen relative height of the mesh above which the lod is active.")]
-        [Range(0f, 1f)]
-        float m_screenHeight;
+        /// <summary>
+        /// The screen relative height of the mesh above which the lod is active, in the range [0,1].
+        /// </summary>
+        public float ScreenHeight { get; }
 
         /// <summary>
         /// Creates a new <see cref="LodInfo"/> instance.
@@ -29,13 +28,8 @@ namespace AnimationInstancing
                 throw new ArgumentOutOfRangeException(nameof(screenSize), screenSize, "Must be in range [0,1]!");
             }
 
-            m_screenHeight = screenSize;
+            ScreenHeight = screenSize;
         }
-
-        /// <summary>
-        /// The screen relative height of the mesh above which the lod is active, in the range [0,1].
-        /// </summary>
-        public float ScreenHeight => m_screenHeight;
     }
 
     /// <summary>
@@ -55,6 +49,21 @@ namespace AnimationInstancing
         [SerializeField]
         [Tooltip("The lod levels of the mesh.")]
         LodData m_lods;
+
+        /// <summary>
+        /// The mesh to instance, with lods packed into the sub meshes.
+        /// </summary>
+        internal Mesh Mesh => m_mesh;
+
+        /// <summary>
+        /// The number of sub meshes, excluding the lods.
+        /// </summary>
+        internal int SubMeshCount => m_subMeshCount;
+
+        /// <summary>
+        /// The lod levels of the mesh.
+        /// </summary>
+        internal LodData Lods => m_lods;
 
         /// <summary>
         /// Creates a new <see cref="InstancedMesh"/> instance.
@@ -91,7 +100,7 @@ namespace AnimationInstancing
 
             var lod = new LodData
             {
-                lodCount = (uint)(lods != null ? Mathf.Min(lods.Length, Constants.k_MaxLodCount) : 0),
+                lodCount = (uint) (lods != null ? Mathf.Min(lods.Length, Constants.k_MaxLodCount) : 0),
             };
             for (var i = 0; i < lod.lodCount; i++)
             {
@@ -102,20 +111,5 @@ namespace AnimationInstancing
             m_subMeshCount = subMeshCount;
             m_lods = lod;
         }
-
-        /// <summary>
-        /// The mesh to instance, with lods packed into the sub meshes.
-        /// </summary>
-        internal Mesh Mesh => m_mesh;
-
-        /// <summary>
-        /// The number of sub meshes, excluding the lods.
-        /// </summary>
-        internal int SubMeshCount => m_subMeshCount;
-
-        /// <summary>
-        /// The lod levels of the mesh.
-        /// </summary>
-        internal LodData Lods => m_lods;
     }
 }

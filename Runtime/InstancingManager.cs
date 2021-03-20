@@ -1,15 +1,14 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 using Unity.Collections;
-using Unity.Jobs;
 
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.LowLevel;
 using UnityEngine.PlayerLoop;
 using UnityEngine.Profiling;
-using System.Collections.Generic;
 
 namespace AnimationInstancing
 {
@@ -18,6 +17,14 @@ namespace AnimationInstancing
     /// </summary>
     public class InstancingManager
     {
+        struct ProviderState
+        {
+            public IInstanceProvider provider;
+            public int lodIndex;
+            public int drawArgsIndex;
+            public int animationBase;
+        }
+
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         struct DrawArgs
         {
@@ -43,14 +50,21 @@ namespace AnimationInstancing
         static CommandBuffer s_cullingCmdBuffer;
         static ComputeBuffer s_lodDataBuffer;
         static ComputeBuffer s_animationDataBuffer;
-        static ComputeBuffer s_instanceDataBuffer;
         static ComputeBuffer s_drawArgsBuffer;
+        static ComputeBuffer s_instanceDataBuffer;
         static ComputeBuffer s_isVisibleBuffer;
         static ComputeBuffer s_isVisibleScanInBucketBuffer;
         static ComputeBuffer s_isVisibleScanAcrossBucketsBuffer;
         static ComputeBuffer s_instancePropertiesBuffer;
 
+        static NativeArray<DrawArgs> s_drawArgs;
+        static int s_drawArgsCount;
+        //static NativeArray<InstanceData> s_instanceData;
+        
         static bool s_enabled;
+        static readonly List<ProviderState> s_providersStates = new List<ProviderState>();
+        static readonly Dictionary<InstancedAnimationSet, int> s_tempAnimationSetToBaseIndex = new Dictionary<InstancedAnimationSet, int>();
+        static readonly List<InstancedAnimationSet> s_tempAnimationSets = new List<InstancedAnimationSet>();
 
         /// <summary>
         /// Is the instance renderer enabled.
@@ -67,6 +81,9 @@ namespace AnimationInstancing
             // In case the domain reload on enter play mode is disabled, we must
             // reset all static fields.
             DisposeResources();
+            s_providersStates.Clear();
+            s_tempAnimationSetToBaseIndex.Clear();
+            s_tempAnimationSets.Clear();
 
             // inject the instancing update method into the player loop
             var loop = PlayerLoop.GetCurrentPlayerLoop();
@@ -90,7 +107,7 @@ namespace AnimationInstancing
         /// <returns>True if the current platform is supported.</returns>
         public bool IsSupported()
         {
-            return IsSupported(out var reasons);
+            return IsSupported(out _);
         }
 
         /// <summary>
@@ -123,18 +140,6 @@ namespace AnimationInstancing
                 DisposeResources();
             }
         }
-
-        struct ProviderState
-        {
-            public IInstanceProvider provider;
-            public int lodIndex;
-        }
-
-        //static int s_instanceProviderCounter;
-        static readonly List<ProviderState> s_providersStates = new List<ProviderState>();
-        static NativeArray<DrawArgs> s_drawArgs;
-        static NativeArray<AnimationData> s_animationData;
-        static NativeArray<InstanceData> s_instanceData;
 
         /// <summary>
         /// Registers an instance provider to the instance manager so its instances will be rendered.
@@ -194,8 +199,8 @@ namespace AnimationInstancing
 
             // Count the total number of instances to render this frame while
             // checking which buffers need to be updated, if any.
-            var instanceCount = 0;
             var dirtyFlags = DirtyFlags.None;
+            var instanceCount = 0;
             
             for (var i = 0; i < s_providersStates.Count; i++)
             {
@@ -203,6 +208,8 @@ namespace AnimationInstancing
                 var provider = state.provider;
                 
                 dirtyFlags |= provider.DirtyFlags;
+                provider.ClearDirtyFlags();
+                
                 instanceCount += provider.InstanceCount;
             }
 
@@ -212,9 +219,25 @@ namespace AnimationInstancing
             }
 
             // update any buffers whose data is invalidated
-            if (dirtyFlags.Contains(DirtyFlags.Mesh))
+            
+            // do updates in parallel jobs???
+            if (dirtyFlags.Intersects(DirtyFlags.Mesh))
             {
                 UpdateMeshBuffers();
+            }
+            if (dirtyFlags.Intersects(DirtyFlags.Mesh | DirtyFlags.Material))
+            {
+                UpdateDrawArgsBuffers();
+            }
+            if (dirtyFlags.Intersects(DirtyFlags.Animation))
+            {
+                UpdateAnimationBuffers();
+            }
+            if (dirtyFlags.Intersects(DirtyFlags.InstanceCount))
+            {
+            }
+            if (dirtyFlags.Intersects(DirtyFlags.PerInstanceData))
+            {
             }
 
             // render the instances for each camera
@@ -231,57 +254,208 @@ namespace AnimationInstancing
             Profiler.EndSample();
         }
 
+        static void Draw(Camera cam)
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Draw)}");
+
+            Profiler.EndSample();
+        }
+
         static void UpdateMeshBuffers()
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateMeshBuffers)}");
 
             // get the lod data for all instanced meshes
-            var lods = new NativeArray<LodData>(s_providersStates.Count, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            var lodData = new NativeArray<LodData>(s_providersStates.Count, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
             
             for (var i = 0; i < s_providersStates.Count; i++)
             {
                 var state = s_providersStates[i];
                 var provider = state.provider;
 
-                lods[i] = provider.Mesh.Lods;
+                lodData[i] = provider.Mesh.Lods;
                 state.lodIndex = i;
 
                 s_providersStates[i] = state;
             }
             
             // create a new buffer if the previous one was too small
-            if (s_lodDataBuffer == null || s_lodDataBuffer.count < lods.Length)
+            if (s_lodDataBuffer == null || s_lodDataBuffer.count < lodData.Length)
             {
                 Dispose(ref s_lodDataBuffer);
             
-                s_lodDataBuffer = new ComputeBuffer(lods.Length, LodData.k_size)
+                s_lodDataBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(lodData.Length), LodData.k_size)
                 {
-                    name = $"{nameof(InstancingManager)}_MeshData",
+                    name = $"{nameof(InstancingManager)}_{nameof(LodData)}",
                 };
             }
             
-            s_lodDataBuffer.SetData(lods, 0, 0, lods.Length);
-            lods.Dispose();
+            s_lodDataBuffer.SetData(lodData, 0, 0, lodData.Length);
+            lodData.Dispose();
+            
+            Profiler.EndSample();
+        }
+
+        readonly struct DrawCall : IEquatable<DrawCall>
+        {
+            public readonly Mesh mesh;
+            public readonly Material material;
+
+            public DrawCall(Mesh mesh, Material material)
+            {
+                this.mesh = mesh;
+                this.material = material;
+            }
+
+            /// <inheritdoc />
+            public bool Equals(DrawCall other)
+            {
+                return mesh == other.mesh && material == other.material;
+            }
+
+            /// <inheritdoc />
+            public override bool Equals(object obj)
+            {
+                return obj is DrawCall other && Equals(other);
+            }
+
+            /// <inheritdoc />
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return ((mesh != null ? mesh.GetHashCode() : 0) * 397) ^ (material != null ? material.GetHashCode() : 0);
+                }
+            }
+        }
+
+        static void UpdateDrawArgsBuffers()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateDrawArgsBuffers)}");
+
+            // Determine the number of individual draw calls required to render the instances.
+            // Each mesh/material combination requires a separate draw call.
+            var drawCallToArgsIndex = new NativeHashMap<DrawCall, int>(s_providersStates.Count, Allocator.Temp);
+            
+            for (var i = 0; i < s_providersStates.Count; i++)
+            {
+                var state = s_providersStates[i];
+                var provider = state.provider;
+
+                var drawCall = new DrawCall(provider.Mesh.Mesh, provider.Material);
+                
+                if (drawCallToArgsIndex.TryGetValue(drawCall, out var baseIndex))
+                {
+                    baseIndex = drawCallToArgsIndex.Count();
+                    drawCallToArgsIndex.Add(drawCall, baseIndex);
+                }
+                
+                state.drawArgsIndex = baseIndex;
+
+                s_providersStates[i] = state;
+            }
+            
+            // Allocate the draw args array. We upload this to the draw args compute buffer each frame to
+            // reset the instance counts, so it must be persistent.
+            s_drawArgsCount = drawCallToArgsIndex.Count();
+
+            if (!s_drawArgs.IsCreated || s_drawArgs.Length < s_drawArgsCount)
+            {
+                Dispose(ref s_drawArgs);
+                
+                s_drawArgs = new NativeArray<DrawArgs>(s_drawArgsCount, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            }
+
+            // get the draw args for each draw call
+            for (var i = 0; i < s_drawArgsCount; i++)
+            {
+                var state = s_providersStates[i];
+                var provider = state.provider;
+
+                
+            }
+
+            // create a new buffer if the previous one was too small
+            if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < s_drawArgsCount)
+            {
+                Dispose(ref s_drawArgsBuffer);
+            
+                s_drawArgsBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(s_drawArgsCount), DrawArgs.k_size, ComputeBufferType.IndirectArguments)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
+                };
+            }
+
+            s_drawArgsBuffer.SetData(s_drawArgs, 0, 0, s_drawArgsCount);
+
+            Profiler.EndSample();
+        }
+
+        static void UpdateAnimationBuffers()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateAnimationBuffers)}");
+
+            s_tempAnimationSetToBaseIndex.Clear();
+            s_tempAnimationSets.Clear();
+            
+            // determine the size required for the animation data buffer
+            var animationCount = 0;
+            
+            for (var i = 0; i < s_providersStates.Count; i++)
+            {
+                var state = s_providersStates[i];
+                var provider = state.provider;
+                var animationSet = provider.AnimationSet;
+
+                if (!s_tempAnimationSetToBaseIndex.TryGetValue(animationSet, out var baseIndex))
+                {
+                    baseIndex = animationCount;
+                    s_tempAnimationSetToBaseIndex.Add(animationSet, baseIndex);
+                    s_tempAnimationSets.Add(animationSet);
+
+                    animationCount += animationSet.Animations.Length;
+                }
+                
+                state.animationBase = baseIndex;
+
+                s_providersStates[i] = state;
+            }
+
+            // get all the animation data 
+            var animationData = new NativeArray<AnimationData>(animationCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            var animationIndex = 0;
+
+            for (var i = 0; i < s_tempAnimationSets.Count; i++)
+            {
+                var animationSet = s_tempAnimationSets[i];
+                var animations = animationSet.Animations;
+
+                for (var j = 0; j < animations.Length; j++)
+                {
+                    animationData[animationIndex] = animations[i].Data;
+                    animationIndex++;
+                }
+            }
+            
+            // create a new buffer if the previous one was too small
+            if (s_animationDataBuffer == null || s_animationDataBuffer.count < animationData.Length)
+            {
+                Dispose(ref s_animationDataBuffer);
+            
+                s_animationDataBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(animationData.Length), AnimationData.k_size)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(AnimationData)}",
+                };
+            }
+            
+            s_animationDataBuffer.SetData(animationData, 0, 0, animationData.Length);
+            animationData.Dispose();
             
             Profiler.EndSample();
         }
         
         static void CreateBuffers()
         {
-            //s_meshDataBuffer = new ComputeBuffer(, MeshData.k_size)
-            //{
-            //    name = $"{nameof(InstancingManager)}_MeshData",
-            //};
-            //s_drawArgsBuffer = new ComputeBuffer(, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
-            //{
-            //    name = $"{nameof(InstancingManager)}_DrawArgs",
-            //};
-
-            //s_animationDataBuffer = new ComputeBuffer(, AnimationData.k_size)
-            //{
-            //    name = $"{nameof(InstancingManager)}_AnimationData",
-            //};
-
             //s_instanceDataBuffer = new ComputeBuffer(count, InstanceData.k_size)
             //{
             //    name = $"{nameof(InstancingManager)}_InstanceData",
@@ -303,13 +477,6 @@ namespace AnimationInstancing
             //{
             //    name = $"{nameof(InstancingManager)}_isVisibleScanAcrossBuckets",
             //};
-        }
-
-        static void Draw(Camera cam)
-        {
-            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Draw)}");
-
-            Profiler.EndSample();
         }
 
         static bool CreateResources()
@@ -380,18 +547,23 @@ namespace AnimationInstancing
             s_scanAcrossBucketsKernel = 0;
             s_compactKernel = 0;
 
-            // destory command buffers
+            // dispose command buffers
             Dispose(ref s_cullingCmdBuffer);
 
-            // destroy compute buffers
+            // dispose compute buffers
             Dispose(ref s_lodDataBuffer);
             Dispose(ref s_animationDataBuffer);
-            Dispose(ref s_instanceDataBuffer);
             Dispose(ref s_drawArgsBuffer);
+            Dispose(ref s_instanceDataBuffer);
             Dispose(ref s_isVisibleBuffer);
             Dispose(ref s_isVisibleScanInBucketBuffer);
             Dispose(ref s_isVisibleScanAcrossBucketsBuffer);
             Dispose(ref s_instancePropertiesBuffer);
+            
+            // dispose main memory buffers
+            Dispose(ref s_drawArgs);
+
+            s_drawArgsCount = 0;
         }
 
         static bool IsSupported(out string reasons)
@@ -441,6 +613,14 @@ namespace AnimationInstancing
             {
                 buffer.Release();
                 buffer = null;
+            }
+        }
+
+        static void Dispose<T>(ref NativeArray<T> buffer) where T : struct
+        {
+            if (buffer.IsCreated)
+            {
+                buffer.Dispose();
             }
         }
     }

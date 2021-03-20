@@ -66,7 +66,7 @@ namespace AnimationInstancing
 
                     var bounds = BakeAnimation(texture, size, animation, region);
 
-                    m_animations.Add(new InstancedAnimation(region, animation.length, bounds));
+                    m_animations.Add(new InstancedAnimation(region, bounds, animation.length));
                 }
 
                 // create the animation texture

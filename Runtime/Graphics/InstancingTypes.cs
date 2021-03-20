@@ -19,6 +19,7 @@ namespace AnimationInstancing
         public fixed float screenHeights[Constants.k_MaxLodCount];
     };
 
+    [Serializable]
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     struct AnimationData
     {

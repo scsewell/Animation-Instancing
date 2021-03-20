@@ -128,13 +128,13 @@ namespace AnimationInstancing
                 return;
             }
 
-            var animations = new NativeArray<AnimationInfo>(m_animationAsset.Animations.Length, Allocator.TempJob);
+            var animations = new NativeArray<AnimationInfo>(m_animationAsset.AnimationSet.Animations.Length, Allocator.TempJob);
 
             for (var i = 0; i < animations.Length; i++)
             {
                 animations[i] = new AnimationInfo
                 {
-                    length = m_animationAsset.Animations[i].Length,
+                    length = m_animationAsset.AnimationSet.Animations[i].Length,
                 };
             }
 
@@ -217,22 +217,22 @@ namespace AnimationInstancing
                 return;
             }
 
-            var texture = m_animationAsset.Texture;
+            var texture = m_animationAsset.AnimationSet.Texture;
             var meshes = m_animationAsset.Meshes;
-            var animations = m_animationAsset.Animations;
+            var animations = m_animationAsset.AnimationSet.Animations;
 
             // create a buffer describing where to read each animation in the animation texture
             var regions = new NativeArray<AnimationRegion>(animations.Length, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
 
             for (var i = 0; i < regions.Length; i++)
             {
-                var region = animations[i].Region;
-
-                regions[i] = new AnimationRegion
-                {
-                    min = region.min,
-                    max = region.max,
-                };
+                // var region = animations[i].Region;
+                //
+                // regions[i] = new AnimationRegion
+                // {
+                //     min = region.min,
+                //     max = region.max,
+                // };
             }
 
             m_animationRegionsBuffer = new ComputeBuffer(animations.Length, AnimationRegion.k_size)

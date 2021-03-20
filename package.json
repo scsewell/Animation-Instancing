@@ -11,7 +11,8 @@
   ],
   "category": "",
   "dependencies": {
-    "com.unity.burst": "1.4.6"
+    "com.unity.burst": "1.5.0",
+    "com.unity.collections": "0.15.0-preview.21"
   },
   "author": {
     "name": "Scott Sewell",
