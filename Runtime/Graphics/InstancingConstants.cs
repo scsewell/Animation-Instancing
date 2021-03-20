@@ -8,7 +8,7 @@ namespace AnimationInstancing
     class Constants
     {
         /// <summary>
-        /// The maximum number of LODs per mesh.
+        /// The maximum number of LODs an instance can use.
         /// </summary>
         public const int k_MaxLodCount = 5;
     }
@@ -21,7 +21,7 @@ namespace AnimationInstancing
         // these use a cbuffer
         //public static readonly int _ViewProj = Shader.PropertyToID("_ViewProj");
         //public static readonly int _CameraPosition = Shader.PropertyToID("_CameraPosition");
-        //public static readonly int _CameraTanFov = Shader.PropertyToID("_CameraTanFov");
+        //public static readonly int _LodScale = Shader.PropertyToID("_LodScale");
         //public static readonly int _LodBias = Shader.PropertyToID("_LodBias");
 
         // culling properties

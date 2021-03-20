@@ -43,7 +43,7 @@ namespace AnimationInstancing
         Mesh m_mesh;
 
         [SerializeField]
-        [Tooltip("The number of sub meshes, excluding the lods.")]
+        [Tooltip("The number of sub meshes in the mesh, excluding the lods.")]
         int m_subMeshCount;
 
         [SerializeField]
@@ -56,7 +56,7 @@ namespace AnimationInstancing
         internal Mesh Mesh => m_mesh;
 
         /// <summary>
-        /// The number of sub meshes, excluding the lods.
+        /// The number of sub meshes in the mesh, excluding the lods.
         /// </summary>
         internal int SubMeshCount => m_subMeshCount;
 
@@ -72,7 +72,7 @@ namespace AnimationInstancing
         /// The mesh to instance, with the lods for each sub mesh also stored as sub meshes. The lods
         /// for a sub mesh are stored in sequential sub meshes, followed by other sub meshes and their lods.
         /// </param>
-        /// <param name="subMeshCount">The number of sub meshes, excluding any lods.</param>
+        /// <param name="subMeshCount">The number of sub meshes in the mesh, excluding any lods.</param>
         /// <param name="lods">The lod levels of the mesh ordered by decreasing detail. If null or empty no lods will be used.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="mesh"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="subMeshCount"/> is less than zero.</exception>
@@ -98,18 +98,30 @@ namespace AnimationInstancing
                 );
             }
 
-            var lod = new LodData
-            {
-                lodCount = (uint) (lods != null ? Mathf.Min(lods.Length, Constants.k_MaxLodCount) : 0),
-            };
-            for (var i = 0; i < lod.lodCount; i++)
-            {
-                lod.screenHeights[i] = lods[i].ScreenHeight;
-            }
-
             m_mesh = mesh;
             m_subMeshCount = subMeshCount;
-            m_lods = lod;
+
+            var lodCount = lods == null ? 0 : Mathf.Min(lods.Length, Constants.k_MaxLodCount);
+
+            if (lodCount > 0)
+            {
+                var lod = new LodData
+                {
+                    lodCount = (uint) lodCount,
+                };
+                for (var i = 0; i < lodCount; i++)
+                {
+                    lod.screenHeights[i] = lods[i].ScreenHeight;
+                }
+                m_lods = lod;
+            }
+            else
+            {
+                m_lods = new LodData
+                {
+                    lodCount = 1,
+                };
+            }
         }
     }
 }

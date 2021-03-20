@@ -11,16 +11,6 @@ namespace AnimationInstancing
 
     [Serializable]
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    unsafe struct LodData
-    {
-        public static readonly int k_size = Marshal.SizeOf<LodData>();
-
-        public uint lodCount;
-        public fixed float screenHeights[Constants.k_MaxLodCount];
-    };
-
-    [Serializable]
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     struct AnimationData
     {
         public static readonly int k_size = Marshal.SizeOf<AnimationData>();
@@ -29,6 +19,28 @@ namespace AnimationInstancing
         public float2 textureRegionMin;
         public float2 textureRegionMax;
     };
+
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    unsafe struct LodData
+    {
+        public static readonly int k_size = Marshal.SizeOf<LodData>();
+
+        public uint lodCount;
+        public fixed float screenHeights[Constants.k_MaxLodCount];
+    };
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    struct DrawArgs
+    {
+        public static readonly int k_size = Marshal.SizeOf<DrawArgs>();
+
+        public uint indexCount;
+        public uint instanceCount;
+        public uint indexStart;
+        public uint baseVertex;
+        public uint instanceStart;
+    }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     struct InstanceData
@@ -39,7 +51,8 @@ namespace AnimationInstancing
         public quaternion rotation;
         public float3 scale;
         public uint lodIndex;
-        public uint argsIndex;
+        public uint drawCallCount;
+        public uint drawArgsBaseIndex;
         public uint animationBase;
         public uint animationIndex;
         public float animationTime;

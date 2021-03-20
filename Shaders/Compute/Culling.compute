@@ -6,7 +6,7 @@
 CBUFFER_START(CullingPropertyBuffer)
 float4x4 _ViewProj;
 float3 _CameraPosition;
-float3 _CameraTanFov;
+float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
 float _LodBias;
 CBUFFER_END
 
@@ -36,14 +36,16 @@ uint IsOutsideBounds(float3 pos, float3 center, float3 extents)
     return dot(disp, disp) > dot(extents, extents);
 }
 
-float ScreenHeightToDistance(float screenHeight)
+float GetLodDistance(float screenHeight, float maxExtent)
 {
-    return _CameraTanFov * screenHeight;
+    return _LodScale * (maxExtent / screenHeight);
 }
 
 [numthreads(64, 1, 1)]
 void CSMain(uint tID : SV_DispatchThreadID)
 {
+    uint i; 
+    
     InstanceData instance = _InstanceData[tID];
     LodData lod = _LodData[instance.lodIndex];
     AnimationData animation = _AnimationData[instance.animationBase + instance.animationIndex];
@@ -54,23 +56,23 @@ void CSMain(uint tID : SV_DispatchThreadID)
 
     // determine if the instance is visible in the frustum
     float3 scaledExtents = animation.bounds.extents * instance.scale;
-    float3 min = animation.bounds.center - scaledExtents;
-    float3 max = animation.bounds.center + scaledExtents;
+    float3 minCorner = animation.bounds.center - scaledExtents;
+    float3 maxCorner = animation.bounds.center + scaledExtents;
 
     float4 corners[8];
-    corners[0] = float4(min.x, min.y, min.z, 1.0);
-    corners[1] = float4(min.x, min.y, max.z, 1.0);
-    corners[2] = float4(min.x, max.y, min.z, 1.0);
-    corners[3] = float4(min.x, max.y, max.z, 1.0);
-    corners[4] = float4(max.x, min.y, min.z, 1.0);
-    corners[5] = float4(max.x, min.y, max.z, 1.0);
-    corners[6] = float4(max.x, max.y, min.z, 1.0);
-    corners[7] = float4(max.x, max.y, max.z, 1.0);
+    corners[0] = float4(minCorner.x, minCorner.y, minCorner.z, 1.0);
+    corners[1] = float4(minCorner.x, minCorner.y, maxCorner.z, 1.0);
+    corners[2] = float4(minCorner.x, maxCorner.y, minCorner.z, 1.0);
+    corners[3] = float4(minCorner.x, maxCorner.y, maxCorner.z, 1.0);
+    corners[4] = float4(maxCorner.x, minCorner.y, minCorner.z, 1.0);
+    corners[5] = float4(maxCorner.x, minCorner.y, maxCorner.z, 1.0);
+    corners[6] = float4(maxCorner.x, maxCorner.y, minCorner.z, 1.0);
+    corners[7] = float4(maxCorner.x, maxCorner.y, maxCorner.z, 1.0);
 
     uint isInFrustum = FrustumCull(mul(mvp, corners[0]));
 
     UNITY_UNROLL
-    for (int i = 1; i < 8; i++)
+    for (i = 1; i < 8; i++)
     {
         isInFrustum = saturate(isInFrustum + FrustumCull(mul(mvp, corners[i])));
     }
@@ -78,24 +80,30 @@ void CSMain(uint tID : SV_DispatchThreadID)
     // if the camera is in the instance bounds we cannot frustum cull
     float3 worldCenter = mul(modelMat, float4(animation.bounds.center, 1.0)).xyz;
     float distanceToCamera = distance(worldCenter, _CameraPosition) / _LodBias;
+    float maxExtent = max(max(scaledExtents.x, scaledExtents.y), scaledExtents.z);
 
     uint isVisible = 1;
     if (IsOutsideBounds(_CameraPosition, worldCenter, scaledExtents))
     {
         isVisible *= isInFrustum;
-        isVisible *= distanceToCamera < ScreenHeightToDistance(lod.screenHeights[lod.lodCount - 1]);
+        isVisible *= distanceToCamera < GetLodDistance(lod.screenHeights[lod.lodCount - 1], maxExtent);
     }
 
     // mark the instance as visible
     _IsVisible[tID] = isVisible;
 
-    uint argsIndex = instance.argsIndex;
+    // increase the drawn instance count for the lod of each sub mesh
+    uint drawArgsIndex = instance.drawArgsBaseIndex;
 
     UNITY_UNROLL
-    for (uint l = 0; l < ANIMATION_INSTANCING_MAX_LOD_COUNT; l++)
+    for (i = 0; i < ANIMATION_INSTANCING_MAX_LOD_COUNT; i++)
     {
-        argsIndex += distanceToCamera > ScreenHeightToDistance(lod.screenHeights[l]);
+        drawArgsIndex += distanceToCamera > GetLodDistance(lod.screenHeights[i], maxExtent);
     }
 
-    InterlockedAdd(_DrawArgs[argsIndex], isVisible);
+    for (i = 0; i < instance.drawCallCount; i++)
+    {
+        InterlockedAdd(_DrawArgs[(drawArgsIndex * 5) + 1], isVisible);
+        drawArgsIndex += lod.lodCount;
+    }
 }

@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 
 using Unity.Collections;
 
@@ -21,22 +20,41 @@ namespace AnimationInstancing
         {
             public IInstanceProvider provider;
             public int lodIndex;
-            public int drawArgsIndex;
-            public int animationBase;
+            public int drawArgsBaseIndex;
+            public int animationBaseIndex;
         }
 
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        struct DrawArgs
+        struct DrawCall : IEquatable<DrawCall>
         {
-            public static readonly int k_size = Marshal.SizeOf<DrawArgs>();
+            public Mesh mesh;
+            public int subMesh;
+            public Material material;
+            public int drawArgIndex;
 
-            public uint indexCount;
-            public uint instanceCount;
-            public uint indexStart;
-            public uint baseVertex;
-            public uint instanceStart;
+            /// <inheritdoc />
+            public bool Equals(DrawCall other)
+            {
+                return mesh == other.mesh
+                       && subMesh == other.subMesh
+                       && material == other.material;
+            }
+
+            /// <inheritdoc />
+            public override bool Equals(object obj)
+            {
+                return obj is DrawCall other && Equals(other);
+            }
+
+            /// <inheritdoc />
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return (((mesh.GetHashCode() * 397) ^ material.GetHashCode()) * 397) ^ subMesh;
+                }
+            }
         }
-
+        
         static bool s_resourcesInitialized;
         static InstancingResources s_resources;
         static ComputeShader s_cullingShader;
@@ -58,11 +76,11 @@ namespace AnimationInstancing
         static ComputeBuffer s_instancePropertiesBuffer;
 
         static NativeArray<DrawArgs> s_drawArgs;
-        static int s_drawArgsCount;
         //static NativeArray<InstanceData> s_instanceData;
         
         static bool s_enabled;
         static readonly List<ProviderState> s_providersStates = new List<ProviderState>();
+        static readonly List<DrawCall> s_drawCalls = new List<DrawCall>();
         static readonly Dictionary<InstancedAnimationSet, int> s_tempAnimationSetToBaseIndex = new Dictionary<InstancedAnimationSet, int>();
         static readonly List<InstancedAnimationSet> s_tempAnimationSets = new List<InstancedAnimationSet>();
 
@@ -82,6 +100,7 @@ namespace AnimationInstancing
             // reset all static fields.
             DisposeResources();
             s_providersStates.Clear();
+            s_drawCalls.Clear();
             s_tempAnimationSetToBaseIndex.Clear();
             s_tempAnimationSets.Clear();
 
@@ -219,13 +238,11 @@ namespace AnimationInstancing
             }
 
             // update any buffers whose data is invalidated
-            
-            // do updates in parallel jobs???
-            if (dirtyFlags.Intersects(DirtyFlags.Mesh))
+            if (dirtyFlags.Intersects(DirtyFlags.Lods))
             {
-                UpdateMeshBuffers();
+                UpdateLodBuffers();
             }
-            if (dirtyFlags.Intersects(DirtyFlags.Mesh | DirtyFlags.Material))
+            if (dirtyFlags.Intersects(DirtyFlags.Lods | DirtyFlags.SubMeshes | DirtyFlags.Materials))
             {
                 UpdateDrawArgsBuffers();
             }
@@ -261,9 +278,9 @@ namespace AnimationInstancing
             Profiler.EndSample();
         }
 
-        static void UpdateMeshBuffers()
+        static void UpdateLodBuffers()
         {
-            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateMeshBuffers)}");
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateLodBuffers)}");
 
             // get the lod data for all instanced meshes
             var lodData = new NativeArray<LodData>(s_providersStates.Count, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
@@ -296,97 +313,101 @@ namespace AnimationInstancing
             Profiler.EndSample();
         }
 
-        readonly struct DrawCall : IEquatable<DrawCall>
-        {
-            public readonly Mesh mesh;
-            public readonly Material material;
-
-            public DrawCall(Mesh mesh, Material material)
-            {
-                this.mesh = mesh;
-                this.material = material;
-            }
-
-            /// <inheritdoc />
-            public bool Equals(DrawCall other)
-            {
-                return mesh == other.mesh && material == other.material;
-            }
-
-            /// <inheritdoc />
-            public override bool Equals(object obj)
-            {
-                return obj is DrawCall other && Equals(other);
-            }
-
-            /// <inheritdoc />
-            public override int GetHashCode()
-            {
-                unchecked
-                {
-                    return ((mesh != null ? mesh.GetHashCode() : 0) * 397) ^ (material != null ? material.GetHashCode() : 0);
-                }
-            }
-        }
-
         static void UpdateDrawArgsBuffers()
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateDrawArgsBuffers)}");
 
             // Determine the number of individual draw calls required to render the instances.
-            // Each mesh/material combination requires a separate draw call.
-            var drawCallToArgsIndex = new NativeHashMap<DrawCall, int>(s_providersStates.Count, Allocator.Temp);
-            
+            // Each mesh/sub mesh/material combination requires a separate draw call.
+            var drawCallToDrawArgsBaseIndex = new NativeHashMap<DrawCall, int>(s_drawCalls.Count * 2, Allocator.Temp);
+
+            s_drawCalls.Clear();
+
             for (var i = 0; i < s_providersStates.Count; i++)
             {
                 var state = s_providersStates[i];
                 var provider = state.provider;
+                var drawCallCount = provider.GetDrawCallCount();
+                var mesh = provider.Mesh;
+                var lodCount = (int)mesh.Lods.lodCount;
 
-                var drawCall = new DrawCall(provider.Mesh.Mesh, provider.Material);
-                
-                if (drawCallToArgsIndex.TryGetValue(drawCall, out var baseIndex))
+                for (var j = 0; j < drawCallCount; j++)
                 {
-                    baseIndex = drawCallToArgsIndex.Count();
-                    drawCallToArgsIndex.Add(drawCall, baseIndex);
+                    if (!provider.TryGetDrawCall(j, out var subMesh, out var material))
+                    {
+                        continue;
+                    }
+                    
+                    for (var k = 0; k < lodCount; k++)
+                    {
+                        var drawCall = new DrawCall
+                        {
+                            mesh = mesh.Mesh,
+                            subMesh = (subMesh * lodCount) + k,
+                            material = material,
+                        };
+                
+                        if (!drawCallToDrawArgsBaseIndex.TryGetValue(drawCall, out var drawArgsIndex))
+                        {
+                            drawArgsIndex = drawCallToDrawArgsBaseIndex.Count();
+                            drawCallToDrawArgsBaseIndex.Add(drawCall, drawArgsIndex);
+
+                            drawCall.drawArgIndex = drawArgsIndex;
+                            s_drawCalls.Add(drawCall);
+                        }
+
+                        // We need to know where in the draw args buffer instances from this provider
+                        // can update their instance count.
+                        if (j == 0 && k == 0)
+                        {
+                            state.drawArgsBaseIndex = drawArgsIndex;
+                        }
+                    }
                 }
                 
-                state.drawArgsIndex = baseIndex;
-
                 s_providersStates[i] = state;
             }
+
+            drawCallToDrawArgsBaseIndex.Dispose();
             
             // Allocate the draw args array. We upload this to the draw args compute buffer each frame to
             // reset the instance counts, so it must be persistent.
-            s_drawArgsCount = drawCallToArgsIndex.Count();
-
-            if (!s_drawArgs.IsCreated || s_drawArgs.Length < s_drawArgsCount)
+            if (!s_drawArgs.IsCreated || s_drawArgs.Length < s_drawCalls.Count)
             {
                 Dispose(ref s_drawArgs);
                 
-                s_drawArgs = new NativeArray<DrawArgs>(s_drawArgsCount, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                s_drawArgs = new NativeArray<DrawArgs>(s_drawCalls.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             }
 
             // get the draw args for each draw call
-            for (var i = 0; i < s_drawArgsCount; i++)
+            for (var i = 0; i < s_drawCalls.Count; i++)
             {
-                var state = s_providersStates[i];
-                var provider = state.provider;
-
+                var drawCall = s_drawCalls[i];
+                var mesh = drawCall.mesh;
+                var subMesh = drawCall.subMesh;
                 
+                s_drawArgs[i] = new DrawArgs
+                {
+                    indexCount = mesh.GetIndexCount(subMesh),
+                    instanceCount = 0,
+                    indexStart = mesh.GetIndexStart(subMesh),
+                    baseVertex = mesh.GetBaseVertex(subMesh),
+                    instanceStart = 0,
+                };
             }
 
             // create a new buffer if the previous one was too small
-            if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < s_drawArgsCount)
+            if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < s_drawCalls.Count)
             {
                 Dispose(ref s_drawArgsBuffer);
             
-                s_drawArgsBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(s_drawArgsCount), DrawArgs.k_size, ComputeBufferType.IndirectArguments)
+                s_drawArgsBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(s_drawCalls.Count), DrawArgs.k_size, ComputeBufferType.IndirectArguments)
                 {
                     name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
                 };
             }
 
-            s_drawArgsBuffer.SetData(s_drawArgs, 0, 0, s_drawArgsCount);
+            s_drawArgsBuffer.SetData(s_drawArgs, 0, 0, s_drawCalls.Count);
 
             Profiler.EndSample();
         }
@@ -416,7 +437,7 @@ namespace AnimationInstancing
                     animationCount += animationSet.Animations.Length;
                 }
                 
-                state.animationBase = baseIndex;
+                state.animationBaseIndex = baseIndex;
 
                 s_providersStates[i] = state;
             }
@@ -563,7 +584,8 @@ namespace AnimationInstancing
             // dispose main memory buffers
             Dispose(ref s_drawArgs);
 
-            s_drawArgsCount = 0;
+            // clear managed state
+            s_drawCalls.Clear();
         }
 
         static bool IsSupported(out string reasons)
