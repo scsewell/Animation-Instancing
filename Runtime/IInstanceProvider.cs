@@ -1,5 +1,8 @@
 ﻿using System;
 
+using Unity.Collections;
+using Unity.Mathematics;
+
 using UnityEngine;
 
 namespace AnimationInstancing
@@ -49,6 +52,46 @@ namespace AnimationInstancing
         /// The animation used by the instances has been changed.
         /// </summary>
         Animation = 1 << 20,
+        
+        /// <summary>
+        /// Force a complete refresh of all instance data.
+        /// </summary>
+        All = ~0,
+    }
+
+    /// <summary>
+    /// A struct that stores the transform of a single instance.
+    /// </summary>
+    public struct InstanceTransform
+    {
+        /// <summary>
+        /// The world space position of the instance.
+        /// </summary>
+        public float3 position;
+        
+        /// <summary>
+        /// The world space rotation of the instance. 
+        /// </summary>
+        public quaternion rotation;
+        
+        /// <summary>
+        /// The world space scale of the instance. 
+        /// </summary>
+        public float3 scale;
+    }
+    
+    /// <summary>
+    /// A struct that stores the data of a single instance.
+    /// </summary>
+    public struct Instance
+    {
+        /// <summary>
+        /// The instance transform.
+        /// </summary>
+        public InstanceTransform transform;
+
+        public int animationIndex;
+        public float animationTime;
     }
 
     /// <summary>
@@ -92,6 +135,12 @@ namespace AnimationInstancing
         /// <param name="material">The material to use when drawing the sub mesh.</param>
         /// <returns>True if the draw call index is valid for this provider.</returns>
         bool TryGetDrawCall(int drawCall, out int subMesh, out Material material);
+
+        /// <summary>
+        /// Gets the instances from this provider.
+        /// </summary>
+        /// <param name="instances">The returned instance array.</param>
+        void GetInstances(out NativeSlice<Instance> instances);
 
         /// <summary>
         /// Resets the dirty flags so the instance renderer will not update the instances from this

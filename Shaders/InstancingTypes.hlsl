@@ -37,7 +37,7 @@ struct InstanceData
     uint lodIndex; // pack the indices to save space
     uint drawCallCount;
     uint drawArgsBaseIndex;
-    uint animationBase;  // pack the indices to save space
+    uint animationBaseIndex;  // pack the indices to save space
     uint animationIndex;
     float animationTime;
 };

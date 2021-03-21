@@ -11,6 +11,11 @@ namespace AnimationInstancing
         /// The maximum number of LODs an instance can use.
         /// </summary>
         public const int k_MaxLodCount = 5;
+        
+        /// <summary>
+        /// The number of elements processed in a scan bucket.
+        /// </summary>
+        public const int k_ScanBucketSize = 512;
     }
 
     /// <summary>

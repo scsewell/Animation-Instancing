@@ -10,7 +10,7 @@ namespace AnimationInstancing
     // This file is kept in sync with InstancingTypes.hlsl
 
     [Serializable]
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     struct AnimationData
     {
         public static readonly int k_size = Marshal.SizeOf<AnimationData>();
@@ -21,7 +21,7 @@ namespace AnimationInstancing
     };
 
     [Serializable]
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     unsafe struct LodData
     {
         public static readonly int k_size = Marshal.SizeOf<LodData>();
@@ -30,7 +30,7 @@ namespace AnimationInstancing
         public fixed float screenHeights[Constants.k_MaxLodCount];
     };
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     struct DrawArgs
     {
         public static readonly int k_size = Marshal.SizeOf<DrawArgs>();
@@ -42,7 +42,7 @@ namespace AnimationInstancing
         public uint instanceStart;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     struct InstanceData
     {
         public static readonly int k_size = Marshal.SizeOf<InstanceData>();
@@ -53,12 +53,12 @@ namespace AnimationInstancing
         public uint lodIndex;
         public uint drawCallCount;
         public uint drawArgsBaseIndex;
-        public uint animationBase;
+        public uint animationBaseIndex;
         public uint animationIndex;
         public float animationTime;
     };
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     struct InstanceProperties
     {
         public static readonly int k_size = Marshal.SizeOf<InstanceProperties>();

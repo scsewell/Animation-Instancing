@@ -48,7 +48,7 @@ void CSMain(uint tID : SV_DispatchThreadID)
     
     InstanceData instance = _InstanceData[tID];
     LodData lod = _LodData[instance.lodIndex];
-    AnimationData animation = _AnimationData[instance.animationBase + instance.animationIndex];
+    AnimationData animation = _AnimationData[instance.animationBaseIndex + instance.animationIndex];
 
     // calculate the local to world matrix and mvp for the instance
     float4x4 modelMat = TRS(instance.position, instance.rotation, instance.scale);
