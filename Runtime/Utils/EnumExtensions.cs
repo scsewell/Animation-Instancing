@@ -83,7 +83,7 @@ namespace AnimationInstancing
 
                 var method = typeof(EnumMethods).GetMethod(
                     functionName,
-                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    BindingFlags.Static | BindingFlags.NonPublic,
                     null,
                     new[] { valueType, valueType }, 
                     null

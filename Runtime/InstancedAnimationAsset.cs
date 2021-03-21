@@ -43,6 +43,9 @@ namespace AnimationInstancing
             {
                 throw new ArgumentNullException(nameof(animations));
             }
+
+            m_texture = texture;
+            m_animations = animations;
         }
     }
 

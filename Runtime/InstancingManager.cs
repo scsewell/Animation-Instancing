@@ -109,7 +109,9 @@ namespace AnimationInstancing
             DisposeResources();
 
             s_providers.Clear();
+            
             Dispose(ref s_providerStates);
+            s_providerStates = new NativeList<ProviderState>(Allocator.Persistent);
             
             s_tempAnimationSetToBaseIndex.Clear();
             s_tempAnimationSets.Clear();
@@ -175,7 +177,7 @@ namespace AnimationInstancing
         /// </summary>
         /// <param name="provider">The provider to register.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="provider"/> is null.</exception>
-        public void RegisterInstanceProvider(IInstanceProvider provider)
+        public static void RegisterInstanceProvider(IInstanceProvider provider)
         {
             if (provider == null)
             {
@@ -201,7 +203,7 @@ namespace AnimationInstancing
         /// </summary>
         /// <param name="provider">The provider to deregister.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="provider"/> is null.</exception>
-        public void DeregisterInstanceProvider(IInstanceProvider provider)
+        public static void DeregisterInstanceProvider(IInstanceProvider provider)
         {
             if (provider == null)
             {
@@ -849,6 +851,7 @@ namespace AnimationInstancing
             if (buffer.IsCreated)
             {
                 buffer.Dispose();
+                buffer = default;
             }
         }
 
@@ -857,6 +860,7 @@ namespace AnimationInstancing
             if (buffer.IsCreated)
             {
                 buffer.Dispose();
+                buffer = default;
             }
         }
 
