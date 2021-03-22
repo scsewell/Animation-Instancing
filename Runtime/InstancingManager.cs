@@ -27,18 +27,12 @@ namespace AnimationInstancing
             public int animationBaseIndex;
         }
 
-        struct DrawCall : IDisposable, IEquatable<DrawCall>
+        struct DrawCall : IEquatable<DrawCall>
         {
-            public Mesh mesh;
+            public MeshHandle mesh;
             public int subMesh;
-            public Material material;
-            public NativeList<int> providerIndices;
+            public MaterialHandle material;
 
-            public void Dispose()
-            {
-                providerIndices.Dispose();
-            }
-            
             public bool Equals(DrawCall other)
             {
                 return mesh == other.mesh &&
@@ -56,6 +50,30 @@ namespace AnimationInstancing
                 return (((mesh.GetHashCode() * 397) ^ material.GetHashCode()) * 397) ^ subMesh;
             }
         }
+        //
+        // struct DrawCallA : IEquatable<DrawCallA>
+        // {
+        //     public Mesh mesh;
+        //     public int subMesh;
+        //     public Material material;
+        //
+        //     public bool Equals(DrawCallA other)
+        //     {
+        //         return mesh == other.mesh &&
+        //                subMesh == other.subMesh &&
+        //                material == other.material;
+        //     }
+        //
+        //     public override bool Equals(object obj)
+        //     {
+        //         return obj is DrawCallA other && Equals(other);
+        //     }
+        //
+        //     public override int GetHashCode()
+        //     {
+        //         return (((mesh.GetHashCode() * 397) ^ material.GetHashCode()) * 397) ^ subMesh;
+        //     }
+        // }
         
         static bool s_resourcesInitialized;
         static InstancingResources s_resources;
@@ -87,10 +105,12 @@ namespace AnimationInstancing
         static DirtyFlags s_dirtyFlags;
         
         static readonly List<IInstanceProvider> s_providers = new List<IInstanceProvider>();
-        static NativeList<ProviderState> s_providerStates;
+        static readonly HandleManager<MeshHandle, Mesh> s_meshHandles = new HandleManager<MeshHandle, Mesh>();
+        static readonly HandleManager<MaterialHandle, Material> s_materialHandles = new HandleManager<MaterialHandle, Material>();
+        static readonly HandleManager<AnimationSetHandle, InstancedAnimationSet> s_animationSetHandles = new HandleManager<AnimationSetHandle, InstancedAnimationSet>();
         
-        static readonly Dictionary<InstancedAnimationSet, int> s_tempAnimationSetToBaseIndex = new Dictionary<InstancedAnimationSet, int>();
-        static readonly List<InstancedAnimationSet> s_tempAnimationSets = new List<InstancedAnimationSet>();
+        static NativeList<ProviderState> s_providerStates;
+        static NativeMultiHashMap<AnimationSetHandle, AnimationData> s_animationSetToAnimations;
 
         /// <summary>
         /// Is the instance renderer enabled.
@@ -109,12 +129,15 @@ namespace AnimationInstancing
             DisposeResources();
 
             s_providers.Clear();
-            
+            s_meshHandles.Clear();
+            s_materialHandles.Clear();
+            s_animationSetHandles.Clear();
+
             Dispose(ref s_providerStates);
+            Dispose(ref s_animationSetToAnimations);
+
             s_providerStates = new NativeList<ProviderState>(Allocator.Persistent);
-            
-            s_tempAnimationSetToBaseIndex.Clear();
-            s_tempAnimationSets.Clear();
+            s_animationSetToAnimations = new NativeMultiHashMap<AnimationSetHandle, AnimationData>(0, Allocator.Persistent);
 
             // inject the instancing update method into the player loop
             var loop = PlayerLoop.GetCurrentPlayerLoop();
@@ -222,6 +245,88 @@ namespace AnimationInstancing
             }
         }
 
+        /// <summary>
+        /// Registers a mesh to the instance manager.
+        /// </summary>
+        /// <param name="mesh">The mesh to register.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="mesh"/> is null.</exception>
+        public static MeshHandle RegisterMesh(Mesh mesh)
+        {
+            if (mesh == null)
+            {
+                throw new ArgumentNullException(nameof(mesh));
+            }
+
+            return s_meshHandles.Register(mesh);
+        }
+        
+        /// <summary>
+        /// Deregisters a mesh from the instance manager.
+        /// </summary>
+        /// <param name="handle">The handle of the mesh to deregister.</param>
+        public static void DeregisterMesh(MeshHandle handle)
+        {
+            s_meshHandles.Deregister(handle);
+        }
+
+        /// <summary>
+        /// Registers a material to the instance manager.
+        /// </summary>
+        /// <param name="material">The material to register.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="material"/> is null.</exception>
+        public static MaterialHandle RegisterMaterial(Material material)
+        {
+            if (material == null)
+            {
+                throw new ArgumentNullException(nameof(material));
+            }
+
+            return s_materialHandles.Register(material);
+        }
+        
+        /// <summary>
+        /// Deregisters a material from the instance manager.
+        /// </summary>
+        /// <param name="handle">The handle of the material to deregister.</param>
+        public static void DeregisterMaterial(MaterialHandle handle)
+        {
+            s_materialHandles.Deregister(handle);
+        }
+        
+        /// <summary>
+        /// Registers an animation set to the instance manager.
+        /// </summary>
+        /// <param name="animationSet">The animation set to register.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="animationSet"/> is null.</exception>
+        public static AnimationSetHandle RegisterAnimationSet(InstancedAnimationSet animationSet)
+        {
+            if (animationSet == null)
+            {
+                throw new ArgumentNullException(nameof(animationSet));
+            }
+
+            var handle = s_animationSetHandles.Register(animationSet);
+
+            for (var i = 0; i < animationSet.Animations.Length; i++)
+            {
+                s_animationSetToAnimations.Add(handle, animationSet.Animations[i].Data);
+            }
+            
+            return handle;
+        }
+
+        /// <summary>
+        /// Deregisters an animation set from the instance manager.
+        /// </summary>
+        /// <param name="handle">The handle of the animation set to deregister.</param>
+        public static void DeregisterAnimationSet(AnimationSetHandle handle)
+        {
+            if (s_animationSetHandles.Deregister(handle))
+            {
+                s_animationSetToAnimations.Remove(handle);
+            }
+        }
+
         static void Update()
         {
             if (!s_enabled)
@@ -306,7 +411,7 @@ namespace AnimationInstancing
                 var provider = s_providers[i];
                 var state = s_providerStates[i];
 
-                lodData[i] = provider.Mesh.Lods;
+                lodData[i] = provider.LodData;
                 state.lodIndex = i;
 
                 s_providerStates[i] = state;
@@ -329,40 +434,20 @@ namespace AnimationInstancing
             Profiler.EndSample();
         }
 
-        struct InstanceType : IEquatable<InstanceType>
-        {
-            public Mesh mesh;
-
-            public bool Equals(InstanceType other)
-            {
-                return mesh == other.mesh;
-            }
-
-            public override bool Equals(object obj)
-            {
-                return obj is InstanceType other && Equals(other);
-            }
-
-            public override int GetHashCode()
-            {
-                return mesh.GetHashCode();
-            }
-        }
-
         static void UpdateDrawArgsBuffers()
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateDrawArgsBuffers)}");
 
             // Determine the number of individual draw calls required to render the instances.
             // Each mesh/sub mesh/material combination requires a separate draw call.
-            var drawCallToDrawCallIndex = new NativeHashMap<DrawCall, int>(s_drawCalls.Count * 2, Allocator.Temp);
+            using var drawCallToDrawCallIndex = new NativeHashMap<DrawCall, int>(s_drawCalls.Count * 2, Allocator.Temp);
 
-            Clear(s_drawCalls);
+            s_drawCalls.Clear();
 
             // Find the ordering of the providers' instances in the instance data buffer. Instances
             // Using the same mesh must be sequential in the buffer.
-            var instanceTypeToIndex = new NativeHashMap<InstanceType, int>(0, Allocator.Temp);
-            var instanceTypeIndexToProviderIndices = new NativeMultiHashMap<int, int>(0, Allocator.Temp);
+            using var meshToIndex = new NativeHashMap<MeshHandle, int>(s_providers.Count, Allocator.Temp);
+            using var meshIndexToProviderIndices = new NativeMultiHashMap<int, int>(s_providers.Count, Allocator.Temp);
 
             for (var i = 0; i < s_providers.Count; i++)
             {
@@ -370,33 +455,28 @@ namespace AnimationInstancing
                 var state = s_providerStates[i];
                 var drawCallCount = provider.GetDrawCallCount();
                 var mesh = provider.Mesh;
-                var lodCount = (int)mesh.Lods.lodCount;
+                var lodCount = (int)provider.LodData.lodCount;
 
-                var instanceType = new InstanceType
+                if (!meshToIndex.TryGetValue(mesh, out var instanceTypeIndex))
                 {
-                    mesh = mesh.Mesh,
-                };
-                
-                if (!instanceTypeToIndex.TryGetValue(instanceType, out var instanceTypeIndex))
-                {
-                    instanceTypeIndex = instanceTypeToIndex.Count();
-                    instanceTypeToIndex.Add(instanceType, instanceTypeIndex);
+                    instanceTypeIndex = meshToIndex.Count();
+                    meshToIndex.Add(mesh, instanceTypeIndex);
                 }
-                instanceTypeIndexToProviderIndices.Add(instanceTypeIndex, i);
+                meshIndexToProviderIndices.Add(instanceTypeIndex, i);
 
-                for (var j = 0; j < drawCallCount; j++)
+                for (var j = 0; j < lodCount; j++)
                 {
-                    if (!provider.TryGetDrawCall(j, out var subMesh, out var material))
+                    for (var k = 0; k < drawCallCount; k++)
                     {
-                        continue;
-                    }
-                    
-                    for (var k = 0; k < lodCount; k++)
-                    {
+                        if (!provider.TryGetDrawCall(j, out var subMesh, out var material))
+                        {
+                            continue;
+                        }
+
                         var drawCall = new DrawCall
                         {
-                            mesh = mesh.Mesh,
-                            subMesh = (subMesh * lodCount) + k,
+                            mesh = mesh,
+                            subMesh = (j * lodCount) + subMesh,
                             material = material,
                         };
                 
@@ -406,17 +486,7 @@ namespace AnimationInstancing
                             drawCallIndex = drawCallToDrawCallIndex.Count();
                             drawCallToDrawCallIndex.Add(drawCall, drawCallIndex);
 
-                            drawCall.providerIndices = new NativeList<int>(8, Allocator.Persistent);
-                            drawCall.providerIndices.Add(i);
                             s_drawCalls.Add(drawCall);
-                        }
-                        else
-                        {
-                            // If we have seen this draw call, we need to update the list of providers
-                            // that use this draw call to include the current provider.
-                            drawCall = s_drawCalls[drawCallIndex];
-                            drawCall.providerIndices.Add(i);
-                            s_drawCalls[drawCallIndex] = drawCall;
                         }
 
                         // We need to know where in the draw args buffer instances from this provider
@@ -432,10 +502,8 @@ namespace AnimationInstancing
                 s_providerStates[i] = state;
             }
 
-            drawCallToDrawCallIndex.Dispose();
-            
             // flatten the provider index ordering map to an array for fast iteration
-            var providerIndexCount = instanceTypeIndexToProviderIndices.Count();
+            var providerIndexCount = meshIndexToProviderIndices.Count();
             
             if (!s_providerIndices.IsCreated || s_providerIndices.Length < providerIndexCount)
             {
@@ -446,18 +514,15 @@ namespace AnimationInstancing
             
             var currentProvider = 0;
             
-            for (var i = 0; i < instanceTypeToIndex.Count(); i++)
+            for (var i = 0; i < meshToIndex.Count(); i++)
             {
-                foreach (var providerIndex in instanceTypeIndexToProviderIndices.GetValuesForKey(i))
+                foreach (var providerIndex in meshIndexToProviderIndices.GetValuesForKey(i))
                 {
                     s_providerIndices[currentProvider] = providerIndex;
                     currentProvider++;
                 }
             }
 
-            instanceTypeToIndex.Dispose();;
-            instanceTypeIndexToProviderIndices.Dispose();
-            
             // Allocate the draw args array. We upload this to the draw args compute buffer each frame to
             // reset the instance counts, so it must be persistent.
             if (!s_drawArgs.IsCreated || s_drawArgs.Length < s_drawCalls.Count)
@@ -504,10 +569,9 @@ namespace AnimationInstancing
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateAnimationBuffers)}");
 
-            s_tempAnimationSetToBaseIndex.Clear();
-            s_tempAnimationSets.Clear();
-            
+            // Find all the animation sets that are currently required for rendering, and
             // determine the size required for the animation data buffer
+            using var animationSetsToBaseIndex = new NativeHashMap<AnimationSetHandle, int>();
             var animationCount = 0;
             
             for (var i = 0; i < s_providers.Count; i++)
@@ -516,13 +580,12 @@ namespace AnimationInstancing
                 var state = s_providerStates[i];
                 var animationSet = provider.AnimationSet;
 
-                if (!s_tempAnimationSetToBaseIndex.TryGetValue(animationSet, out var baseIndex))
+                if (!animationSetsToBaseIndex.TryGetValue(animationSet, out var baseIndex))
                 {
                     baseIndex = animationCount;
-                    s_tempAnimationSetToBaseIndex.Add(animationSet, baseIndex);
-                    s_tempAnimationSets.Add(animationSet);
+                    animationSetsToBaseIndex.Add(animationSet, baseIndex);
 
-                    animationCount += animationSet.Animations.Length;
+                    animationCount += s_animationSetToAnimations.CountValuesForKey(animationSet);
                 }
                 
                 state.animationBaseIndex = baseIndex;
@@ -534,18 +597,19 @@ namespace AnimationInstancing
             var animationData = new NativeArray<AnimationData>(animationCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
             var animationIndex = 0;
 
-            for (var i = 0; i < s_tempAnimationSets.Count; i++)
+            using var animationSets = animationSetsToBaseIndex.GetKeyArray(Allocator.Temp);
+            
+            for (var i = 0; i < animationSets.Length; i++)
             {
-                var animationSet = s_tempAnimationSets[i];
-                var animations = animationSet.Animations;
+                var animationSet = animationSets[i];
 
-                for (var j = 0; j < animations.Length; j++)
+                foreach (var animation in s_animationSetToAnimations.GetValuesForKey(animationSet))
                 {
-                    animationData[animationIndex] = animations[i].Data;
+                    animationData[animationIndex] = animation;
                     animationIndex++;
                 }
             }
-            
+
             // create a new buffer if the previous one is too small
             if (s_animationDataBuffer == null || s_animationDataBuffer.count < animationData.Length)
             {
@@ -793,7 +857,7 @@ namespace AnimationInstancing
             Dispose(ref s_instanceData);
 
             // clear managed state
-            Clear(s_drawCalls);
+            s_drawCalls.Clear();
         }
         
         static bool IsSupported(out string reasons)
@@ -864,13 +928,15 @@ namespace AnimationInstancing
             }
         }
 
-        static void Clear(List<DrawCall> drawCalls)
+        static void Dispose<TKey, TValue>(ref NativeMultiHashMap<TKey, TValue> buffer)
+            where TKey : struct, IEquatable<TKey>
+            where TValue : struct
         {
-            for (var i = 0; i < s_drawCalls.Count; i++)
+            if (buffer.IsCreated)
             {
-                drawCalls[i].Dispose();
+                buffer.Dispose();
+                buffer = default;
             }
-            drawCalls.Clear();
         }
     }
 }

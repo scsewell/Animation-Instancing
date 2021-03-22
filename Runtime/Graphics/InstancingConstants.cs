@@ -5,7 +5,7 @@ namespace AnimationInstancing
     /// <summary>
     /// A class containing constant values.
     /// </summary>
-    class Constants
+    public class Constants
     {
         /// <summary>
         /// The maximum number of LODs an instance can use.
@@ -15,7 +15,7 @@ namespace AnimationInstancing
         /// <summary>
         /// The number of elements processed in a scan bucket.
         /// </summary>
-        public const int k_ScanBucketSize = 512;
+        internal const int k_ScanBucketSize = 512;
     }
 
     /// <summary>

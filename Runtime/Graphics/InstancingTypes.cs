@@ -18,17 +18,45 @@ namespace AnimationInstancing
         public Bounds bounds;
         public float2 textureRegionMin;
         public float2 textureRegionMax;
-    };
+    }
 
+    /// <summary>
+    /// A struct that stores the level of detail configuration for an instanced mesh.
+    /// </summary>
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
-    unsafe struct LodData
+    public unsafe struct LodData
     {
-        public static readonly int k_size = Marshal.SizeOf<LodData>();
+        internal static readonly int k_size = Marshal.SizeOf<LodData>();
 
-        public uint lodCount;
-        public fixed float screenHeights[Constants.k_MaxLodCount];
-    };
+        [SerializeField]
+        uint lodCount;
+        [SerializeField]
+        fixed float screenHeights[Constants.k_MaxLodCount];
+
+        /// <summary>
+        /// Creates a new <see cref="LodData"/> instance.
+        /// </summary>
+        /// <param name="lods">The lod levels ordered by decreasing detail. If null or empty no lods will be used.</param>
+        public LodData(LodInfo[] lods)
+        {
+            var count = lods == null ? 0 : Mathf.Min(lods.Length, Constants.k_MaxLodCount);
+
+            if (count > 0)
+            {
+                lodCount = (uint)count;
+
+                for (var i = 0; i < count; i++)
+                {
+                    screenHeights[i] = lods[i].ScreenHeight;
+                }
+            }
+            else
+            {
+                lodCount = 1;
+            }
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     struct DrawArgs
@@ -56,7 +84,7 @@ namespace AnimationInstancing
         public uint animationBaseIndex;
         public uint animationIndex;
         public float animationTime;
-    };
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     struct InstanceProperties
@@ -67,5 +95,5 @@ namespace AnimationInstancing
         public float4x4 modelInv;
         public uint animationIndex;
         public float animationTime;
-    };
+    }
 }

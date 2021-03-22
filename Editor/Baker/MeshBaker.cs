@@ -145,11 +145,11 @@ namespace AnimationInstancing
                 // get the data for each mesh combined into a single set of data
                 var vertices = new NativeArray<Vertex80>(vertexCount, Allocator.Temp);
                 var indices = new NativeArray<ushort>(indexCount, Allocator.Temp);
-                var subMeshes = new NativeArray<SubMeshDescriptor>(renderers.Length, Allocator.Temp);
+                var subMeshes = new NativeArray<SubMeshDescriptor>(subMeshCount, Allocator.Temp);
 
                 var currentVertex = 0;
                 var currentIndex = 0;
-                var currentSubmesh = 0;
+                var currentSubMesh = 0;
 
                 for (var i = 0; i < renderers.Length; i++)
                 {
@@ -170,14 +170,14 @@ namespace AnimationInstancing
                     {
                         var ind = mesh.GetIndices(j);
 
-                        subMeshes[currentSubmesh] = new SubMeshDescriptor
+                        subMeshes[currentSubMesh] = new SubMeshDescriptor
                         {
                             topology = mesh.GetTopology(j),
                             indexStart = currentIndex,
                             indexCount = ind.Length,
                             baseVertex = currentVertex,
                         };
-                        currentSubmesh++;
+                        currentSubMesh++;
 
                         for (var k = 0; k < ind.Length; k++)
                         {

@@ -69,8 +69,8 @@ namespace AnimationInstancing
         /// Creates a new <see cref="InstancedMesh"/> instance.
         /// </summary>
         /// <param name="mesh">
-        /// The mesh to instance, with the lods for each sub mesh also stored as sub meshes. The lods
-        /// for a sub mesh are stored in sequential sub meshes, followed by other sub meshes and their lods.
+        /// The mesh to instance, with the lods packed in as sub meshes. For meshes with multiple sub meshes and lods,
+        /// the sub meshes for LOD0 are stored first, then all the sub meshes for LOD1 and so on.
         /// </param>
         /// <param name="subMeshCount">The number of sub meshes in the mesh, excluding any lods.</param>
         /// <param name="lods">The lod levels of the mesh ordered by decreasing detail. If null or empty no lods will be used.</param>
@@ -80,7 +80,7 @@ namespace AnimationInstancing
         /// Thrown if the number of sub meshes in the mesh is not a multiple of <paramref name="subMeshCount"/> and the number of
         /// lods in <paramref name="lods"/>.
         /// </exception>
-        public unsafe InstancedMesh(Mesh mesh, int subMeshCount, LodInfo[] lods)
+        public InstancedMesh(Mesh mesh, int subMeshCount, LodInfo[] lods)
         {
             if (mesh == null)
             {
@@ -100,28 +100,7 @@ namespace AnimationInstancing
 
             m_mesh = mesh;
             m_subMeshCount = subMeshCount;
-
-            var lodCount = lods == null ? 0 : Mathf.Min(lods.Length, Constants.k_MaxLodCount);
-
-            if (lodCount > 0)
-            {
-                var lod = new LodData
-                {
-                    lodCount = (uint) lodCount,
-                };
-                for (var i = 0; i < lodCount; i++)
-                {
-                    lod.screenHeights[i] = lods[i].ScreenHeight;
-                }
-                m_lods = lod;
-            }
-            else
-            {
-                m_lods = new LodData
-                {
-                    lodCount = 1,
-                };
-            }
+            m_lods = new LodData(lods);
         }
     }
 }

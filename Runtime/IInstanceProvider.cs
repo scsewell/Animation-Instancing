@@ -3,8 +3,6 @@
 using Unity.Collections;
 using Unity.Mathematics;
 
-using UnityEngine;
-
 namespace AnimationInstancing
 {
     /// <summary>
@@ -95,6 +93,53 @@ namespace AnimationInstancing
     }
 
     /// <summary>
+    /// A struct that stores the data about a sub mesh to draw.
+    /// </summary>
+    public struct SubMesh
+    {
+        /// <summary>
+        /// The index of the sub mesh to draw in the mesh.
+        /// </summary>
+        public int subMeshIndex;
+        
+        /// <summary>
+        /// The material to use when drawing the sub mesh.
+        /// </summary>
+        public MaterialHandle materialHandle;
+    }
+
+    /// <summary>
+    /// A struct that stores the data used to render a set of instances.
+    /// </summary>
+    public struct InstanceProviderState
+    {
+        /// <summary>
+        /// The mesh to render the instances with.
+        /// </summary>
+        public MeshHandle mesh;
+        
+        /// <summary>
+        /// The sub meshes of the mesh to draw.
+        /// </summary>
+        public NativeSlice<SubMesh> subMeshes;
+
+        /// <summary>
+        /// The levels of detail to render the instances with.
+        /// </summary>
+        public LodData lods;
+
+        /// <summary>
+        /// The animation set used for the instances.
+        /// </summary>
+        public AnimationSetHandle animationSet;
+
+        /// <summary>
+        /// The instance data.
+        /// </summary>
+        public NativeSlice<Instance> instances;
+    }
+
+    /// <summary>
     /// An interface used to provide instance data to the <see cref="InstancingManager"/>.
     /// Use <see cref="InstancingManager.RegisterInstanceProvider"/> to make the renderer
     /// aware of the instances managed by this provider.
@@ -102,46 +147,16 @@ namespace AnimationInstancing
     public interface IInstanceProvider
     {
         /// <summary>
-        /// The number of instances to render.
-        /// </summary>
-        int InstanceCount { get; }
-
-        /// <summary>
-        /// The mesh to render these instances with.
-        /// </summary>
-        InstancedMesh Mesh { get; }
-
-        /// <summary>
-        /// The animation set used for the instances.
-        /// </summary>
-        InstancedAnimationSet AnimationSet { get; }
-
-        /// <summary>
         /// The flags indicating if the instance data has changed.
         /// </summary>
         DirtyFlags DirtyFlags { get; }
 
         /// <summary>
-        /// Gets the number of draw calls used when rendering these instances.
+        /// Gets the data used to render the instances.
         /// </summary>
-        /// <returns>The number of draw calls.</returns>
-        int GetDrawCallCount();
-
-        /// <summary>
-        /// Gets the configuration of a draw call used for these instances.
-        /// </summary>
-        /// <param name="drawCall">The index of the draw call.</param>
-        /// <param name="subMesh">The index of the sub mesh to draw in the mesh.</param>
-        /// <param name="material">The material to use when drawing the sub mesh.</param>
-        /// <returns>True if the draw call index is valid for this provider.</returns>
-        bool TryGetDrawCall(int drawCall, out int subMesh, out Material material);
-
-        /// <summary>
-        /// Gets the instances from this provider.
-        /// </summary>
-        /// <param name="instances">The returned instance array.</param>
-        void GetInstances(out NativeSlice<Instance> instances);
-
+        /// <param name="state">Returns the current instance state.</param>
+        void GetState(out InstanceProviderState state);
+        
         /// <summary>
         /// Resets the dirty flags so the instance renderer will not update the instances from this
         /// provider the next time it renders.

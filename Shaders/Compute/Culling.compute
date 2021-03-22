@@ -98,12 +98,13 @@ void CSMain(uint tID : SV_DispatchThreadID)
     UNITY_UNROLL
     for (i = 0; i < ANIMATION_INSTANCING_MAX_LOD_COUNT; i++)
     {
-        drawArgsIndex += distanceToCamera > GetLodDistance(lod.screenHeights[i], maxExtent);
+        uint useNextLod = distanceToCamera > GetLodDistance(lod.screenHeights[i], maxExtent);
+        drawArgsIndex += instance.drawCallCount * useNextLod;
     }
 
     for (i = 0; i < instance.drawCallCount; i++)
     {
         InterlockedAdd(_DrawArgs[(drawArgsIndex * 5) + 1], isVisible);
-        drawArgsIndex += lod.lodCount;
+        drawArgsIndex++;
     }
 }
