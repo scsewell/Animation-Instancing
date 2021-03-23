@@ -124,13 +124,13 @@ namespace AnimationInstancing
     {
         readonly Dictionary<THandle, TClass> m_forward = new Dictionary<THandle, TClass>();
         readonly Dictionary<TClass, THandle> m_reverse = new Dictionary<TClass, THandle>();
-        int m_count;
+        int m_count = 1;
 
-        public THandle Register(TClass instance)
+        public bool Register(TClass instance, out THandle handle)
         {
-            if (m_reverse.TryGetValue(instance, out var handle))
+            if (m_reverse.TryGetValue(instance, out handle))
             {
-                return handle;
+                return false;
             }
 
             handle = new THandle
@@ -140,7 +140,7 @@ namespace AnimationInstancing
 
             m_forward.Add(handle, instance);
             m_reverse.Add(instance, handle);
-            return handle;
+            return true;
         }
         
         public bool Deregister(THandle handle)
@@ -164,7 +164,7 @@ namespace AnimationInstancing
         {
             m_forward.Clear();
             m_reverse.Clear();
-            m_count = 0;
+            m_count = 1;
         }
     }
 }

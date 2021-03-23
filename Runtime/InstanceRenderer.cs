@@ -18,17 +18,12 @@ namespace AnimationInstancing
         [SerializeField]
         int m_instanceCount = 100;
 
+        MeshHandle m_meshHandle;
+        MaterialHandle m_materialHandle;
+        AnimationSetHandle m_animationSetHandle;
         NativeArray<Instance> m_instances;
+        NativeArray<SubMesh> m_subMeshes;
         
-        /// <inheritdoc />
-        public int InstanceCount => m_instanceCount;
-
-        /// <inheritdoc />
-        public InstancedMesh Mesh => m_animationAsset.Meshes[0];
-        
-        /// <inheritdoc />
-        public InstancedAnimationSet AnimationSet => m_animationAsset.AnimationSet;
-
         /// <inheritdoc />
         public DirtyFlags DirtyFlags { get; private set; } = DirtyFlags.All;
 
@@ -36,35 +31,62 @@ namespace AnimationInstancing
         {
             InstancingManager.RegisterInstanceProvider(this);
 
-            m_instances = new NativeArray<Instance>(m_instanceCount, Allocator.Persistent);
+            Init();
         }
 
         void OnDisable()
         {
             InstancingManager.DeregisterInstanceProvider(this);
             
-            if (m_instances.IsCreated)
-            {
-                m_instances.Dispose();
-                m_instances = default;
-            }
+            Deinit();
         }
 
-        void OnValidate()
+        void Init()
         {
-            if (m_instances.IsCreated)
-            {
-                m_instances.Dispose();
-                m_instances = default;
-            }
+            m_meshHandle = InstancingManager.RegisterMesh(m_animationAsset.Meshes[0].Mesh);
+            m_materialHandle = InstancingManager.RegisterMaterial(m_material);
+            m_animationSetHandle = InstancingManager.RegisterAnimationSet(m_animationAsset.AnimationSet);
             
             m_instances = new NativeArray<Instance>(m_instanceCount, Allocator.Persistent);
+            m_subMeshes = new NativeArray<SubMesh>(1, Allocator.Persistent);
 
+            m_subMeshes[0] = new SubMesh
+            {
+                materialHandle = m_materialHandle,
+                subMeshIndex = 0,
+            };
+            
             DirtyFlags = DirtyFlags.All;
+        }
+
+        void Deinit()
+        {
+            Dispose(ref m_instances);
+            Dispose(ref m_subMeshes);
+         
+            InstancingManager.DeregisterMesh(m_meshHandle);
+            InstancingManager.DeregisterMaterial(m_materialHandle);
+            InstancingManager.DeregisterAnimationSet(m_animationSetHandle);
+            
+            m_meshHandle = default;
+            m_materialHandle = default;
+            m_animationSetHandle = default;
+        }
+
+        void Dispose<T>(ref NativeArray<T> array) where T : struct
+        {
+            if (array.IsCreated)
+            {
+                array.Dispose();
+                array = default;
+            }
         }
 
         void Update()
         {
+            Deinit();
+            Init();
+            
             var animations = new NativeArray<float>(m_animationAsset.AnimationSet.Animations.Length, Allocator.TempJob);
 
             for (var i = 0; i < animations.Length; i++)
@@ -85,7 +107,7 @@ namespace AnimationInstancing
             handle.Complete();
         }
         
-        [BurstCompile]
+        [BurstCompile(DisableSafetyChecks = true)]
         struct ConfigureInstancesJob : IJobParallelFor
         {
             [ReadOnly, NoAlias, DeallocateOnJobCompletion]
@@ -119,29 +141,15 @@ namespace AnimationInstancing
         }
 
         /// <inheritdoc />
-        public int GetDrawCallCount()
+        public void GetState(out RenderState state, out NativeSlice<SubMesh> subMeshes, out NativeSlice<Instance> instances)
         {
-            return 1;
-        }
-
-        /// <inheritdoc />
-        public bool TryGetDrawCall(int drawCall, out int subMesh, out Material material)
-        {
-            if (drawCall < 0 || 1 < drawCall)
+            state = new RenderState
             {
-                subMesh = 0;
-                material = null;
-                return false;
-            }
-            
-            subMesh = 0;
-            material = m_material;
-            return true;
-        }
-
-        /// <inheritdoc />
-        public void GetInstances(out NativeSlice<Instance> instances)
-        {
+                mesh = m_meshHandle,
+                lods = m_animationAsset.Meshes[0].Lods,
+                animationSet = m_animationSetHandle,
+            };
+            subMeshes = m_subMeshes;
             instances = m_instances;
         }
 

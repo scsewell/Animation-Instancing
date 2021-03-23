@@ -111,18 +111,13 @@ namespace AnimationInstancing
     /// <summary>
     /// A struct that stores the data used to render a set of instances.
     /// </summary>
-    public struct InstanceProviderState
+    public struct RenderState
     {
         /// <summary>
         /// The mesh to render the instances with.
         /// </summary>
         public MeshHandle mesh;
         
-        /// <summary>
-        /// The sub meshes of the mesh to draw.
-        /// </summary>
-        public NativeSlice<SubMesh> subMeshes;
-
         /// <summary>
         /// The levels of detail to render the instances with.
         /// </summary>
@@ -132,11 +127,6 @@ namespace AnimationInstancing
         /// The animation set used for the instances.
         /// </summary>
         public AnimationSetHandle animationSet;
-
-        /// <summary>
-        /// The instance data.
-        /// </summary>
-        public NativeSlice<Instance> instances;
     }
 
     /// <summary>
@@ -155,7 +145,9 @@ namespace AnimationInstancing
         /// Gets the data used to render the instances.
         /// </summary>
         /// <param name="state">Returns the current instance state.</param>
-        void GetState(out InstanceProviderState state);
+        /// <param name="subMeshes">Returns the sub meshes of the mesh to draw.</param>
+        /// <param name="instances">Returns the instance data.</param>
+        void GetState(out RenderState state, out NativeSlice<SubMesh> subMeshes, out NativeSlice<Instance> instances);
         
         /// <summary>
         /// Resets the dirty flags so the instance renderer will not update the instances from this

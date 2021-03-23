@@ -30,7 +30,7 @@ namespace AnimationInstancing
         internal static readonly int k_size = Marshal.SizeOf<LodData>();
 
         [SerializeField]
-        uint lodCount;
+        internal uint lodCount;
         [SerializeField]
         fixed float screenHeights[Constants.k_MaxLodCount];
 
