@@ -1,6 +1,5 @@
-﻿#pragma kernel ScanInBucket
-#pragma kernel ScanAcrossBuckets
-#pragma kernel ScanCombine
+﻿#include "HLSLSupport.cginc"
+#include "../InstancingCore.hlsl"
 
 // An exclusive scan algorithm implementation that uses compute shaders.
 // https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda
@@ -25,11 +24,12 @@
 // Since each pass is limited to 2048 elements, at most 2048 * 2048 = 4194304 elements
 // can be scanned using two passes. However, we limit the size of the first pass below
 // that maximum to optimize for the common cases, reducing the max element count.
+#pragma kernel ScanInBucket
+#pragma kernel ScanAcrossBuckets
+#pragma kernel ScanCombine
 
 #define MAX_THREAD_GROUP_SIZE 1024
 #define BUCKET_SIZE 512
-
-int _ScanBucketCount;
 
 StructuredBuffer<uint> _ScanIn;
 RWStructuredBuffer<uint> _ScanOut;

@@ -1,6 +1,7 @@
-﻿#pragma kernel CSMain
-
+﻿#include "HLSLSupport.cginc"
 #include "../InstancingCore.hlsl"
+
+#pragma kernel CSMain
 
 StructuredBuffer<InstanceData> _InstanceData;
 StructuredBuffer<uint> _IsVisible;

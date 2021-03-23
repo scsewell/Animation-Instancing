@@ -32,7 +32,7 @@ namespace AnimationInstancing
         [SerializeField]
         internal uint lodCount;
         [SerializeField]
-        fixed float screenHeights[Constants.k_MaxLodCount];
+        fixed float screenHeights[Constants.k_maxLodCount];
 
         /// <summary>
         /// Creates a new <see cref="LodData"/> instance.
@@ -40,7 +40,7 @@ namespace AnimationInstancing
         /// <param name="lods">The lod levels ordered by decreasing detail. If null or empty no lods will be used.</param>
         public LodData(LodInfo[] lods)
         {
-            var count = lods == null ? 0 : Mathf.Min(lods.Length, Constants.k_MaxLodCount);
+            var count = lods == null ? 0 : Mathf.Min(lods.Length, Constants.k_maxLodCount);
 
             if (count > 0)
             {
@@ -95,5 +95,17 @@ namespace AnimationInstancing
         public float4x4 modelInv;
         public uint animationIndex;
         public float animationTime;
+    }
+    
+    [StructLayout(LayoutKind.Sequential)]
+    struct CullingPropertyBuffer
+    {
+        public static readonly int k_size = Marshal.SizeOf<CullingPropertyBuffer>();
+
+        public float4x4 _ViewProj;
+        public float3 _CameraPosition;
+        public float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
+        public float _LodBias;
+        public int _ScanBucketCount;
     }
 }
