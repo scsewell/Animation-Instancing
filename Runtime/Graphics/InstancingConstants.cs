@@ -47,7 +47,7 @@ namespace AnimationInstancing
         public static readonly int _CullingPropertyBuffer = Shader.PropertyToID("CullingPropertyBuffer");
         
         // culling properties
-        public static readonly int _MeshData = Shader.PropertyToID("_MeshData");
+        public static readonly int _LodData = Shader.PropertyToID("_LodData");
         public static readonly int _AnimationData = Shader.PropertyToID("_AnimationData");
         public static readonly int _InstanceData = Shader.PropertyToID("_InstanceData");
         public static readonly int _DrawArgs = Shader.PropertyToID("_DrawArgs");
@@ -59,6 +59,8 @@ namespace AnimationInstancing
         public static readonly int _ScanIntermediate = Shader.PropertyToID("_ScanIntermediate");
 
         // compaction properties
+        public static readonly int _ScanInBucket = Shader.PropertyToID("_ScanInBucket");
+        public static readonly int _ScanAcrossBuckets = Shader.PropertyToID("_ScanAcrossBuckets");
         public static readonly int _InstanceProperties = Shader.PropertyToID("_InstanceProperties");
 
         // shader properties

@@ -93,6 +93,7 @@ namespace AnimationInstancing
         static NativeArray<CullingPropertyBuffer> s_cullingProperties;
         
         static CommandBuffer s_cullingCmdBuffer;
+        
         static ComputeBuffer s_lodDataBuffer;
         static ComputeBuffer s_animationDataBuffer;
         static ComputeBuffer s_drawArgsBuffer;
@@ -101,7 +102,6 @@ namespace AnimationInstancing
         static ComputeBuffer s_isVisibleScanInBucketBuffer;
         static ComputeBuffer s_isVisibleScanAcrossBucketsBuffer;
         static ComputeBuffer s_instancePropertiesBuffer;
-        
         static int s_cullingThreadGroupCount;
         static int s_scanInBucketThreadGroupCount;
         static int s_compactThreadGroupCount;
@@ -458,12 +458,6 @@ namespace AnimationInstancing
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Cull)}");
 
-            s_cullingCmdBuffer.Clear();
-            
-            // reset buffers
-            s_cullingCmdBuffer.SetBufferData(s_drawArgsBuffer, s_drawArgs);
-
-            // culling and lod selection
             var vFov = cam.fieldOfView;
             var hFov = Camera.VerticalToHorizontalFieldOfView(vFov, cam.aspect);
             var fov = math.max(vFov, hFov);
@@ -475,8 +469,15 @@ namespace AnimationInstancing
                 _LodBias = QualitySettings.lodBias,
                 _LodScale = 1f / (2f * math.tan(math.radians(fov / 2f))),
                 _ScanBucketCount = s_scanInBucketThreadGroupCount,
+                _DrawArgsCount = s_drawArgs.Length,
             };
+
+            s_cullingCmdBuffer.Clear();
             
+            // reset buffers
+            s_cullingCmdBuffer.SetBufferData(s_drawArgsBuffer, s_drawArgs);
+
+            // culling and lod selection
             s_cullingCmdBuffer.SetBufferData(s_cullingConstantBuffer, s_cullingProperties);
             s_cullingCmdBuffer.SetComputeConstantBufferParam(
                 s_cullingShader,
@@ -485,6 +486,37 @@ namespace AnimationInstancing
                 0,
                 CullingPropertyBuffer.k_size
             );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullingShader,
+                s_cullingKernel,
+                Properties._LodData,
+                s_lodDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullingShader,
+                s_cullingKernel,
+                Properties._AnimationData,
+                s_animationDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullingShader,
+                s_cullingKernel,
+                Properties._InstanceData,
+                s_instanceDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullingShader,
+                s_cullingKernel,
+                Properties._DrawArgs,
+                s_drawArgsBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullingShader,
+                s_cullingKernel,
+                Properties._IsVisible,
+                s_isVisibleBuffer
+            );
+            
             s_cullingCmdBuffer.DispatchCompute(
                 s_cullingShader,
                 s_cullingKernel, 
@@ -492,9 +524,24 @@ namespace AnimationInstancing
             );
             
             // scan
-            s_cullingCmdBuffer.SetComputeBufferParam(s_scanShader, s_scanInBucketKernel, Properties._ScanIn, s_isVisibleBuffer);
-            s_cullingCmdBuffer.SetComputeBufferParam(s_scanShader, s_scanInBucketKernel, Properties._ScanIntermediate, s_isVisibleScanAcrossBucketsBuffer);
-            s_cullingCmdBuffer.SetComputeBufferParam(s_scanShader, s_scanInBucketKernel, Properties._ScanOut, s_isVisibleScanInBucketBuffer);
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_scanShader,
+                s_scanInBucketKernel,
+                Properties._ScanIn,
+                s_isVisibleBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_scanShader, 
+                s_scanInBucketKernel,
+                Properties._ScanIntermediate,
+                s_isVisibleScanAcrossBucketsBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_scanShader,
+                s_scanInBucketKernel,
+                Properties._ScanOut,
+                s_isVisibleScanInBucketBuffer
+            );
             
             s_cullingCmdBuffer.DispatchCompute(
                 s_scanShader,
@@ -502,8 +549,12 @@ namespace AnimationInstancing
                 s_scanInBucketThreadGroupCount, 1, 1
             );
             
-            s_cullingCmdBuffer.SetComputeBufferParam(s_scanShader, s_scanAcrossBucketsKernel, Properties._ScanIn, s_isVisibleScanAcrossBucketsBuffer);
-            s_cullingCmdBuffer.SetComputeBufferParam(s_scanShader, s_scanAcrossBucketsKernel, Properties._ScanOut, );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_scanShader, 
+                s_scanAcrossBucketsKernel,
+                Properties._ScanOut,
+                s_isVisibleScanAcrossBucketsBuffer
+            );
 
             s_cullingCmdBuffer.DispatchCompute(
                 s_scanShader,
@@ -512,6 +563,55 @@ namespace AnimationInstancing
             );
             
             // compact
+            s_cullingCmdBuffer.SetComputeConstantBufferParam(
+                s_compactShader,
+                Properties._CullingPropertyBuffer,
+                s_cullingConstantBuffer,
+                0,
+                CullingPropertyBuffer.k_size
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel,
+                Properties._InstanceData,
+                s_instanceDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel,
+                Properties._IsVisible,
+                s_isVisibleBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel,
+                Properties._ScanInBucket,
+                s_isVisibleScanInBucketBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel,
+                Properties._ScanAcrossBuckets,
+                s_isVisibleScanAcrossBucketsBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel,
+                Properties._DrawArgs,
+                s_drawArgsBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel,
+                Properties._InstanceProperties,
+                s_instancePropertiesBuffer
+            );
+            
+            s_cullingCmdBuffer.DispatchCompute(
+                s_compactShader,
+                s_compactKernel, 
+                s_compactThreadGroupCount, 1, 1
+            );
             
             Graphics.ExecuteCommandBuffer(s_cullingCmdBuffer);
             
@@ -805,12 +905,7 @@ namespace AnimationInstancing
 
                 var count = Mathf.NextPowerOfTwo(instanceCount);
                 
-                s_instanceDataBuffer = new ComputeBuffer(
-                    count,
-                    InstanceData.k_size,
-                    ComputeBufferType.Default,
-                    ComputeBufferMode.Dynamic
-                )
+                s_instanceDataBuffer = new ComputeBuffer(count, InstanceData.k_size)
                 {
                     name = $"{nameof(InstancingManager)}_{nameof(InstanceData)}",
                 };
@@ -841,11 +936,6 @@ namespace AnimationInstancing
             }
             
             Profiler.EndSample();
-        }
-
-        static int CeilDivide(int x, int y)
-        {
-            return ((x - 1) / y) + 1;
         }
 
         [BurstCompile(DisableSafetyChecks = true)]
@@ -1079,6 +1169,11 @@ namespace AnimationInstancing
 
             kernelID = shader.FindKernel(name);
             return true;
+        }
+
+        static int CeilDivide(int x, int y)
+        {
+            return ((x - 1) / y) + 1;
         }
 
         static void Dispose(ref CommandBuffer buffer)

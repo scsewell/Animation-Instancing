@@ -71,6 +71,7 @@ float3 _CameraPosition;
 float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
 float _LodBias;
 int _ScanBucketCount;
+int _DrawArgsCount;
 CBUFFER_END
 
 #endif // ANIMATION_INSTANCING_TYPES_INCLUDED

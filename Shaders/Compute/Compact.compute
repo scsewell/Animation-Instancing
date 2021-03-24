@@ -5,8 +5,8 @@
 
 StructuredBuffer<InstanceData> _InstanceData;
 StructuredBuffer<uint> _IsVisible;
-StructuredBuffer<uint> _Scan;
-StructuredBuffer<uint> _ScanBuckets;
+StructuredBuffer<uint> _ScanInBucket;
+StructuredBuffer<uint> _ScanAcrossBuckets;
 
 RWStructuredBuffer<InstanceProperties> _InstanceProperties;
 RWStructuredBuffer<uint> _DrawArgs;
@@ -17,21 +17,24 @@ void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
     // scatter instance data based on the index determined by the scan
     if (_IsVisible[tID] == 1)
     {
-        uint instanceOutIndex = _Scan[tID] + _ScanBuckets[groupID];
-        //uint drawInstanceIndex = _SortingData[tID].drawCallInstanceIndex & 0xFFFF;
-
-        //_InstancesCulledMatrixRows01[instanceDataOutIndex] = _InstancesDrawMatrixRows01[drawInstanceIndex];
-        //_InstancesCulledMatrixRows23[instanceDataOutIndex] = _InstancesDrawMatrixRows23[drawInstanceIndex];
-        //_InstancesCulledMatrixRows45[instanceDataOutIndex] = _InstancesDrawMatrixRows45[drawInstanceIndex];
+        InstanceData data = _InstanceData[tID];
+        
+        InstanceProperties properties;
+        properties.model = TRS(data.position, data.rotation, data.scale);
+        properties.modelInv =  InvertMatrix(properties.model);
+        properties.animationIndex = data.animationIndex;
+        properties.animationTime = data.animationTime;
+        
+        uint instanceOutIndex = _ScanInBucket[tID] + (groupID > 0 ? _ScanAcrossBuckets[groupID] : 0);
+        _InstanceProperties[instanceOutIndex] = properties;
     }
 
     // write the index of the first instance of this type in the draw args buffer
-    if ((tID == 0) * (groupID == 0))
+    if ((tID * groupID) == 0)
     {
-        //for (uint k = 1; k < _NumOfDrawcalls; k++)
-        //{
-        //    _DrawcallDataOut[k * 5 + 4] = _DrawcallDataOut[(k - 1) * 5 + 4] +    //previous prop type offset 
-        //        _DrawcallDataOut[(k - 1) * 5 + 1];    //previous prop type number of instances
-        //}
+        for (int i = 1; i < _DrawArgsCount; i++)
+        {
+            _DrawArgs[(i * 5) + 4] = _DrawArgs[((i - 1) * 5) + 4] + _DrawArgs[((i - 1) * 5) + 1];
+        }
     }
 }

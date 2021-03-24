@@ -99,8 +99,8 @@ void ScanAcrossBuckets(int tID : SV_DispatchThreadID, int groupTID : SV_GroupThr
     int offset = 1;
 
     // load input into shared memory
-    temp[2 * groupTID] = _ScanIn[2 * tID];
-    temp[2 * groupTID + 1] = _ScanIn[2 * tID + 1];
+    temp[2 * groupTID] = _ScanOut[2 * tID];
+    temp[2 * groupTID + 1] = _ScanOut[2 * tID + 1];
 
     // reduction step
     for (d = _ScanBucketCount >> 1; d > 0; d >>= 1)
