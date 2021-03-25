@@ -7,9 +7,10 @@ StructuredBuffer<InstanceData> _InstanceData;
 StructuredBuffer<uint> _IsVisible;
 StructuredBuffer<uint> _ScanInBucket;
 StructuredBuffer<uint> _ScanAcrossBuckets;
+StructuredBuffer<uint> _DrawCallCounts;
 
 RWStructuredBuffer<InstanceProperties> _InstanceProperties;
-RWStructuredBuffer<uint> _DrawArgs;
+RWStructuredBuffer<DrawArgs> _DrawArgs;
 
 [numthreads(512, 1, 1)]
 void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
@@ -32,9 +33,19 @@ void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
     // write the index of the first instance of this type in the draw args buffer
     if ((tID * groupID) == 0)
     {
-        for (int i = 1; i < _DrawArgsCount; i++)
+        int instanceStart = 0;
+        _DrawArgs[0].instanceStart = instanceStart;
+        
+        for (int i = 1; i < _DrawArgsCount;)
         {
-            _DrawArgs[(i * 5) + 4] = _DrawArgs[((i - 1) * 5) + 4] + _DrawArgs[((i - 1) * 5) + 1];
+            instanceStart += _DrawArgs[i - 1].instanceCount;
+            uint drawCallCount = _DrawCallCounts[i];
+            
+            for (uint j = 0; j < drawCallCount; j++)
+            {
+                _DrawArgs[i].instanceStart = instanceStart;
+                i++;
+            }
         }
     }
 }

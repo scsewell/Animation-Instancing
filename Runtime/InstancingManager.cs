@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Unity.Jobs;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 
 using UnityEngine;
@@ -37,6 +38,7 @@ namespace AnimationInstancing
             public int subMesh;
             public MaterialHandle material;
             public AnimationSetHandle animation;
+            public int drawCallCount;
 
             public bool Equals(DrawCall other)
             {
@@ -99,6 +101,7 @@ namespace AnimationInstancing
         static ComputeBuffer s_lodDataBuffer;
         static ComputeBuffer s_animationDataBuffer;
         static ComputeBuffer s_drawArgsBuffer;
+        static ComputeBuffer s_drawCallCountsBuffer;
         static ComputeBuffer s_instanceDataBuffer;
         static ComputeBuffer s_isVisibleBuffer;
         static ComputeBuffer s_isVisibleScanInBucketBuffer;
@@ -536,6 +539,7 @@ namespace AnimationInstancing
                             subMesh = (subMeshes.Length * j) + subMesh.subMeshIndex,
                             material = subMesh.materialHandle,
                             animation = state.renderState.animationSet,
+                            drawCallCount = subMeshes.Length,
                         };
                 
                         if (!drawCallToDrawCallIndex.TryGetValue(drawCall, out var drawCallIndex))
@@ -603,31 +607,44 @@ namespace AnimationInstancing
                 );
             }
 
+            var drawCallCounts = new NativeArray<uint>(
+                s_drawCalls.Count,
+                Allocator.Temp,
+                NativeArrayOptions.UninitializedMemory
+            );
+
             // get the draw args for each draw call
             for (var i = 0; i < s_drawCalls.Count; i++)
             {
                 var drawCall = s_drawCalls[i];
                 var subMeshDrawArgs = s_meshToSubMeshDrawArgs[drawCall.mesh];
                 s_drawArgs[i] = subMeshDrawArgs[drawCall.subMesh];
+                drawCallCounts[i] = (uint)drawCall.drawCallCount;
             }
 
             // create a new buffer if the previous one is too small
             if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < s_drawCalls.Count)
             {
                 Dispose(ref s_drawArgsBuffer);
+                Dispose(ref s_drawCallCountsBuffer);
+
+                var count = Mathf.NextPowerOfTwo(s_drawCalls.Count);
             
-                s_drawArgsBuffer = new ComputeBuffer(
-                    Mathf.NextPowerOfTwo(s_drawCalls.Count),
-                    DrawArgs.k_size,
-                    ComputeBufferType.IndirectArguments
-                )
+                s_drawArgsBuffer = new ComputeBuffer(count, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
                 {
                     name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
                 };
+                s_drawCallCountsBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_DrawCallCounts",
+                };
             }
-
+            
             s_drawArgsBuffer.SetData(s_drawArgs, 0, 0, s_drawCalls.Count);
+            s_drawCallCountsBuffer.SetData(drawCallCounts, 0, 0, s_drawCalls.Count);
 
+            drawCallCounts.Dispose();
+            
             Profiler.EndSample();
         }
 
@@ -778,7 +795,7 @@ namespace AnimationInstancing
             public ProviderState providerState;
             public int instanceStart;
             
-            [WriteOnly, NoAlias]
+            [WriteOnly, NoAlias, NativeDisableContainerSafetyRestriction]
             public NativeArray<InstanceData> instanceData;
 
             /// <inheritdoc />
@@ -842,7 +859,7 @@ namespace AnimationInstancing
             updateInstancesJob.Complete();
 
             // upload the instance data to the compute buffer
-            s_instanceDataBuffer.SetData(s_instanceData, 0, 0, s_instanceData.Length);
+            s_instanceDataBuffer.SetData(s_instanceData, 0, 0, currentInstances);
             
             Profiler.EndSample();
         }
@@ -986,6 +1003,12 @@ namespace AnimationInstancing
                 s_compactKernel,
                 Properties._ScanAcrossBuckets,
                 s_isVisibleScanAcrossBucketsBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel,
+                Properties._DrawCallCounts,
+                s_drawCallCountsBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
@@ -1147,6 +1170,7 @@ namespace AnimationInstancing
             Dispose(ref s_lodDataBuffer);
             Dispose(ref s_animationDataBuffer);
             Dispose(ref s_drawArgsBuffer);
+            Dispose(ref s_drawCallCountsBuffer);
             Dispose(ref s_instanceDataBuffer);
             Dispose(ref s_isVisibleBuffer);
             Dispose(ref s_isVisibleScanInBucketBuffer);

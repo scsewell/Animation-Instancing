@@ -62,6 +62,7 @@ namespace AnimationInstancing
         public static readonly int _ScanInBucket = Shader.PropertyToID("_ScanInBucket");
         public static readonly int _ScanAcrossBuckets = Shader.PropertyToID("_ScanAcrossBuckets");
         public static readonly int _InstanceProperties = Shader.PropertyToID("_InstanceProperties");
+        public static readonly int _DrawCallCounts = Shader.PropertyToID("_DrawCallCounts");
 
         // shader properties
         public static readonly int _DrawArgsOffset = Shader.PropertyToID("_DrawArgsOffset");

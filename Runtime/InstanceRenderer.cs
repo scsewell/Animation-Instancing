@@ -14,15 +14,15 @@ namespace AnimationInstancing
         [SerializeField]
         InstancedAnimationAsset m_animationAsset = null;
         [SerializeField]
-        Material m_material = null;
+        Material[] m_materials = null;
         [SerializeField]
         int m_instanceCount = 100;
 
         MeshHandle m_meshHandle;
-        MaterialHandle m_materialHandle;
         AnimationSetHandle m_animationSetHandle;
-        NativeArray<Instance> m_instances;
+        NativeArray<MaterialHandle> m_materialHandles;
         NativeArray<SubMesh> m_subMeshes;
+        NativeArray<Instance> m_instances;
         NativeArray<float> m_animationLengths;
         
         /// <inheritdoc />
@@ -44,19 +44,29 @@ namespace AnimationInstancing
 
         void Init()
         {
-            m_meshHandle = InstancingManager.RegisterMesh(m_animationAsset.Meshes[0].Mesh);
-            m_materialHandle = InstancingManager.RegisterMaterial(m_material);
+            var mesh = m_animationAsset.Meshes[0];
+            
+            m_meshHandle = InstancingManager.RegisterMesh(mesh.Mesh);
             m_animationSetHandle = InstancingManager.RegisterAnimationSet(m_animationAsset.AnimationSet);
+         
+            m_materialHandles = new NativeArray<MaterialHandle>(m_materials.Length, Allocator.Persistent);
+            for (var i = 0; i < m_materialHandles.Length; i++)
+            {
+                m_materialHandles[i] = InstancingManager.RegisterMaterial(m_materials[i]);
+            }
+            
+            m_subMeshes = new NativeArray<SubMesh>(mesh.SubMeshCount, Allocator.Persistent);
+            for (var i = 0; i < m_subMeshes.Length; i++)
+            {
+                m_subMeshes[i] = new SubMesh
+                {
+                    materialHandle = m_materialHandles[Mathf.Min(i, m_materialHandles.Length - 1)],
+                    subMeshIndex = i,
+                };
+            }
             
             m_instances = new NativeArray<Instance>(m_instanceCount, Allocator.Persistent);
-            
-            m_subMeshes = new NativeArray<SubMesh>(1, Allocator.Persistent);
-            m_subMeshes[0] = new SubMesh
-            {
-                materialHandle = m_materialHandle,
-                subMeshIndex = 0,
-            };
-            
+
             m_animationLengths = new NativeArray<float>(m_animationAsset.AnimationSet.Animations.Length, Allocator.Persistent);
             for (var i = 0; i < m_animationLengths.Length; i++)
             {
@@ -68,17 +78,21 @@ namespace AnimationInstancing
 
         void Deinit()
         {
-            Dispose(ref m_instances);
-            Dispose(ref m_subMeshes);
-            Dispose(ref m_animationLengths);
-         
             InstancingManager.DeregisterMesh(m_meshHandle);
-            InstancingManager.DeregisterMaterial(m_materialHandle);
             InstancingManager.DeregisterAnimationSet(m_animationSetHandle);
-            
+
             m_meshHandle = default;
-            m_materialHandle = default;
             m_animationSetHandle = default;
+            
+            for (var i = 0; i < m_materialHandles.Length; i++)
+            {
+                InstancingManager.DeregisterMaterial(m_materialHandles[i]);
+            }
+            
+            Dispose(ref m_materialHandles);
+            Dispose(ref m_subMeshes);
+            Dispose(ref m_instances);
+            Dispose(ref m_animationLengths);
         }
 
         void Dispose<T>(ref NativeArray<T> array) where T : struct
