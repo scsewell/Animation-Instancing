@@ -37,7 +37,7 @@ namespace AnimationInstancing
         Dictionary<SkinnedMeshRenderer, Dictionary<int, int>> m_renderIndexMaps;
 
         /// <summary>
-        ///     Creates a baker instance.
+        /// Creates a baker instance.
         /// </summary>
         /// <param name="config">The description of the data to bake.</param>
         public Baker(BakeConfig config)
@@ -46,11 +46,10 @@ namespace AnimationInstancing
         }
 
         /// <summary>
-        ///     Bakes the animations.
+        /// Bakes the animations.
         /// </summary>
         /// <param name="assetPath">
-        ///     The path starting from and including the assets folder
-        ///     under which to save the animation data.
+        /// The path starting from and including the assets folder under which to save the animation data.
         /// </param>
         /// <returns>True if the operation was cancelled.</returns>
         public bool Bake(string assetPath)
@@ -107,6 +106,7 @@ namespace AnimationInstancing
 
         void PrepareBones()
         {
+            var root = m_config.animator.transform;
             var renderers = m_config.renderers;
 
             // We must find all unique bones used by any renderers, as well as the bind pose
@@ -123,6 +123,7 @@ namespace AnimationInstancing
                 var boneIndexToCombinedIndex = new Dictionary<int, int>();
                 var rendererBones = renderer.bones;
                 var rendererBindPoses = renderer.sharedMesh.bindposes;
+                var toRootSpace = root.worldToLocalMatrix * renderer.transform.localToWorldMatrix;
 
                 for (var i = 0; i < rendererBones.Length; i++)
                 {
@@ -131,7 +132,7 @@ namespace AnimationInstancing
                     if (!bones.Contains(bone))
                     {
                         bones.Add(bone);
-                        bindPoses.Add(rendererBindPoses[i]);
+                        bindPoses.Add(rendererBindPoses[i] * toRootSpace.inverse);
                     }
 
                     boneIndexToCombinedIndex.Add(i, bones.IndexOf(bone));

@@ -230,11 +230,9 @@ namespace AnimationInstancing
                         }
 
                         // Get the bind pose position and bone index used by each vertex,
-                        // with the assumption that each vertex is influnced by a single bone.
+                        // with the assumption that each vertex is influenced by a single bone.
                         var index = indexMap[weights[j].boneIndex0];
-
-                        var localBindPos = (Vector3)m_bindPoses[index].inverse.GetColumn(3);
-                        var bindPos = to.InverseTransformPoint(from.TransformPoint(localBindPos));
+                        var bindPos = (Vector3)m_bindPoses[index].inverse.GetColumn(3);
 
                         // This coordinate gives the row in the animation texture this vertex should read from.
                         // We offset the coordinate to be in the center of the pixel.
@@ -274,7 +272,9 @@ namespace AnimationInstancing
                 indices.Dispose();
                 subMeshes.Dispose();
 
-                m_meshes.Add(new InstancedMesh(combinedMesh, 1, GetLods()));
+                var lods = GetLods();
+                var lodCount = (lods == null ? 1 : Mathf.Max(1, lods.Length));
+                m_meshes.Add(new InstancedMesh(combinedMesh, combinedMesh.subMeshCount / lodCount, lods));
                 return false;
             }
             finally

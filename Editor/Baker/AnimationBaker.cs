@@ -115,18 +115,18 @@ namespace AnimationInstancing
                 // play a frame in the animation
                 AnimationMode.SampleAnimationClip(animator, animation, time);
 
-                for (var bone = 0; bone < m_bones.Length; bone++)
+                for (var boneIndex = 0; boneIndex < m_bones.Length; boneIndex++)
                 {
                     // get the offset from the bind pose to the current pose for the bone
                     var root = animator.transform;
-                    var t = m_bones[bone];
+                    var bone = m_bones[boneIndex];
 
-                    var pos = root.InverseTransformPoint(t.position);
-                    var rot = t.rotation * m_bindPoses[bone].rotation;
+                    var pos = root.InverseTransformPoint(bone.position);
+                    var rot = bone.rotation * m_bindPoses[boneIndex].rotation;
 
                     // write the pose to the animation texture
                     var x = region.x + frame;
-                    var y = region.y + bone;
+                    var y = region.y + boneIndex;
                     SetValue(texture, textureSize, x, y, pos);
                     SetValue(texture, textureSize, x, y + (region.height / 2), new Vector4(rot.x, rot.y, rot.z, rot.w));
                 }
@@ -183,6 +183,7 @@ namespace AnimationInstancing
 
             var localToWorld = from.localToWorldMatrix;
             var worldToLocal = to.worldToLocalMatrix;
+            var lossyScale = localToWorld.lossyScale;
 
             var min = float.MaxValue * Vector3.one;
             var max = float.MinValue * Vector3.one;
@@ -190,13 +191,14 @@ namespace AnimationInstancing
             for (var i = 0; i < vertices.Length; i++)
             {
                 var vert = vertices[i];
+                vert = new Vector3(vert.x / lossyScale.x, vert.y / lossyScale.y, vert.z / lossyScale.z);
                 vert = localToWorld.MultiplyPoint3x4(vert);
                 vert = worldToLocal.MultiplyPoint3x4(vert);
 
                 min = Vector3.Min(min, vert);
                 max = Vector3.Max(max, vert);
             }
-
+            
             var center = (max + min) * 0.5f;
             var size = max - min;
             bounds = new Bounds(center, size);
