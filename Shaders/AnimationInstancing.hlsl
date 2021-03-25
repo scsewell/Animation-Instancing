@@ -12,6 +12,8 @@
 TEXTURE2D(_Animation);  SAMPLER(sampler_Animation);
 float4 _Animation_TexelSize;
 
+uint _DrawArgsOffset;
+StructuredBuffer<DrawArgs> _DrawArgs;
 StructuredBuffer<AnimationData> _AnimationData;
 StructuredBuffer<InstanceProperties> _InstanceProperties;
 
@@ -20,17 +22,23 @@ float _AnimationTime;
 
 void Setup()
 {
-    InstanceProperties props = _InstanceProperties[unity_InstanceID];
+#if defined(SHADER_API_METAL)
+    uint instanceIndex = unity_InstanceID;
+#else
+    uint instanceIndex = _DrawArgs[_DrawArgsOffset].instanceStart + unity_InstanceID;
+#endif
+    
+    InstanceProperties props = _InstanceProperties[instanceIndex];
 
     // set the mode matrix for the current instance
     UNITY_MATRIX_M = props.model;
     UNITY_MATRIX_I_M = props.modelInv;
 
     // get the properties of the animation used by this instance
-    _AnimationInfo = _AnimationData[props.animation];
+    _AnimationInfo = _AnimationData[props.animationIndex];
 
     // get the animation time of this instance
-    _AnimationTime = props.time;
+    _AnimationTime = props.animationTime;
 }
 
 float3 RotatePoint(float3 p, float4 q)

@@ -64,6 +64,7 @@ namespace AnimationInstancing
         public static readonly int _InstanceProperties = Shader.PropertyToID("_InstanceProperties");
 
         // shader properties
+        public static readonly int _DrawArgsOffset = Shader.PropertyToID("_DrawArgsOffset");
         public static readonly int _Animation = Shader.PropertyToID("_Animation");
     }
 

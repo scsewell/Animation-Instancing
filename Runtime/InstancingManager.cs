@@ -36,6 +36,7 @@ namespace AnimationInstancing
             public MeshHandle mesh;
             public int subMesh;
             public MaterialHandle material;
+            public AnimationSetHandle animation;
 
             public bool Equals(DrawCall other)
             {
@@ -93,6 +94,7 @@ namespace AnimationInstancing
         static NativeArray<CullingPropertyBuffer> s_cullingProperties;
         
         static CommandBuffer s_cullingCmdBuffer;
+        static CommandBuffer s_drawingCmdBuffer;
         
         static ComputeBuffer s_lodDataBuffer;
         static ComputeBuffer s_animationDataBuffer;
@@ -109,7 +111,8 @@ namespace AnimationInstancing
         static NativeArray<DrawArgs> s_drawArgs;
         static NativeArray<int> s_providerIndices;
         static NativeArray<InstanceData> s_instanceData;
-
+        static int s_providerIndexCount;
+        
         // TODO: move to native array, make "baked" copy that references instances
         static readonly List<DrawCall> s_drawCalls = new List<DrawCall>();
         
@@ -454,6 +457,396 @@ namespace AnimationInstancing
             Draw(Camera.main);
         }
 
+        static void UpdateLodBuffers()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateLodBuffers)}");
+
+            // get the lod data for all instanced meshes
+            var lodData = new NativeArray<LodData>(
+                s_providerStates.Length, 
+                Allocator.Temp, 
+                NativeArrayOptions.UninitializedMemory
+            );
+            
+            for (var i = 0; i < s_providerStates.Length; i++)
+            {
+                var state = s_providerStates[i];
+
+                lodData[i] = state.renderState.lods;
+                state.lodIndex = i;
+
+                s_providerStates[i] = state;
+            }
+            
+            // create a new buffer if the previous one is too small
+            if (s_lodDataBuffer == null || s_lodDataBuffer.count < lodData.Length)
+            {
+                Dispose(ref s_lodDataBuffer);
+            
+                s_lodDataBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(lodData.Length), LodData.k_size)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(LodData)}",
+                };
+            }
+            
+            s_lodDataBuffer.SetData(lodData, 0, 0, lodData.Length);
+            lodData.Dispose();
+            
+            Profiler.EndSample();
+        }
+
+        static void UpdateDrawArgsBuffers()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateDrawArgsBuffers)}");
+
+            // Determine the number of individual draw calls required to render the instances.
+            // Each mesh/sub mesh/material combination requires a separate draw call.
+            var drawCallToDrawCallIndex = new NativeHashMap<DrawCall, int>(s_drawCalls.Count * 2, Allocator.Temp);
+
+            s_drawCalls.Clear();
+
+            // Find the ordering of the providers' instances in the instance data buffer. Instances
+            // Using the same mesh must be sequential in the buffer.
+            var meshToIndex = new NativeHashMap<MeshHandle, int>(s_providerStates.Length, Allocator.Temp);
+            var meshIndexToProviderIndices = new NativeMultiHashMap<int, int>(s_providerStates.Length, Allocator.Temp);
+
+            for (var i = 0; i < s_providerStates.Length; i++)
+            {
+                var state = s_providerStates[i];
+                var mesh = state.renderState.mesh;
+                var subMeshes = (NativeSlice<SubMesh>)state.subMeshes;
+                var lodCount = (int)state.renderState.lods.lodCount;
+
+                if (!meshToIndex.TryGetValue(mesh, out var meshIndex))
+                {
+                    meshIndex = meshToIndex.Count();
+                    meshToIndex.Add(mesh, meshIndex);
+                }
+                meshIndexToProviderIndices.Add(meshIndex, i);
+
+                for (var j = 0; j < lodCount; j++)
+                {
+                    for (var k = 0; k < subMeshes.Length; k++)
+                    {
+                        var subMesh = subMeshes[k];
+                        
+                        var drawCall = new DrawCall
+                        {
+                            mesh = mesh,
+                            subMesh = (subMeshes.Length * j) + subMesh.subMeshIndex,
+                            material = subMesh.materialHandle,
+                            animation = state.renderState.animationSet,
+                        };
+                
+                        if (!drawCallToDrawCallIndex.TryGetValue(drawCall, out var drawCallIndex))
+                        {
+                            // If we have not seen this parameter combination before, create a draw call 
+                            drawCallIndex = drawCallToDrawCallIndex.Count();
+                            drawCallToDrawCallIndex.Add(drawCall, drawCallIndex);
+
+                            s_drawCalls.Add(drawCall);
+                        }
+
+                        // We need to track where we can update the instance count/offset in the draw args buffer
+                        // instances from this provider from the culling/compact shader.
+                        if (j == 0 && k == 0)
+                        {
+                            state.drawArgsBaseIndex = drawCallIndex;
+                        }
+                    }
+                }
+
+                state.drawCallCount = subMeshes.Length;
+                s_providerStates[i] = state;
+            }
+
+            drawCallToDrawCallIndex.Dispose();
+
+            // flatten the provider index ordering map to an array for fast iteration
+            s_providerIndexCount = meshIndexToProviderIndices.Count();
+            
+            if (!s_providerIndices.IsCreated || s_providerIndices.Length < s_providerIndexCount)
+            {
+                Dispose(ref s_providerIndices);
+                
+                s_providerIndices = new NativeArray<int>(
+                    s_providerIndexCount,
+                    Allocator.Persistent,
+                    NativeArrayOptions.UninitializedMemory
+                );
+            }
+            
+            var currentProvider = 0;
+            
+            for (var i = 0; i < meshToIndex.Count(); i++)
+            {
+                foreach (var providerIndex in meshIndexToProviderIndices.GetValuesForKey(i))
+                {
+                    s_providerIndices[currentProvider] = providerIndex;
+                    currentProvider++;
+                }
+            }
+
+            meshToIndex.Dispose();
+            meshIndexToProviderIndices.Dispose();
+            
+            // Allocate the draw args array. We upload this to the draw args compute buffer each frame to
+            // reset the instance counts, so it must be persistent.
+            if (!s_drawArgs.IsCreated || s_drawArgs.Length < s_drawCalls.Count)
+            {
+                Dispose(ref s_drawArgs);
+                
+                s_drawArgs = new NativeArray<DrawArgs>(
+                    s_drawCalls.Count,
+                    Allocator.Persistent,
+                    NativeArrayOptions.UninitializedMemory
+                );
+            }
+
+            // get the draw args for each draw call
+            for (var i = 0; i < s_drawCalls.Count; i++)
+            {
+                var drawCall = s_drawCalls[i];
+                var subMeshDrawArgs = s_meshToSubMeshDrawArgs[drawCall.mesh];
+                s_drawArgs[i] = subMeshDrawArgs[drawCall.subMesh];
+            }
+
+            // create a new buffer if the previous one is too small
+            if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < s_drawCalls.Count)
+            {
+                Dispose(ref s_drawArgsBuffer);
+            
+                s_drawArgsBuffer = new ComputeBuffer(
+                    Mathf.NextPowerOfTwo(s_drawCalls.Count),
+                    DrawArgs.k_size,
+                    ComputeBufferType.IndirectArguments
+                )
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
+                };
+            }
+
+            s_drawArgsBuffer.SetData(s_drawArgs, 0, 0, s_drawCalls.Count);
+
+            Profiler.EndSample();
+        }
+
+        static void UpdateAnimationBuffers()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateAnimationBuffers)}");
+
+            // Find all the animation sets that are currently required for rendering, and
+            // determine the size required for the animation data buffer
+            var animationSetsToBaseIndex = new NativeHashMap<AnimationSetHandle, int>(0, Allocator.Temp);
+            var animationCount = 0;
+            
+            for (var i = 0; i < s_providerStates.Length; i++)
+            {
+                var state = s_providerStates[i];
+                var animationSet = state.renderState.animationSet;
+
+                if (!animationSetsToBaseIndex.TryGetValue(animationSet, out var baseIndex))
+                {
+                    baseIndex = animationCount;
+                    animationSetsToBaseIndex.Add(animationSet, baseIndex);
+
+                    animationCount += s_animationSetToAnimations[animationSet].Length;
+                }
+                
+                state.animationBaseIndex = baseIndex;
+
+                s_providerStates[i] = state;
+            }
+
+            // get all the animation data 
+            var animationData = new NativeArray<AnimationData>(
+                animationCount,
+                Allocator.Temp,
+                NativeArrayOptions.UninitializedMemory
+            );
+            
+            var animationIndex = 0;
+            var animationSets = animationSetsToBaseIndex.GetKeyArray(Allocator.Temp);
+            
+            for (var i = 0; i < animationSets.Length; i++)
+            {
+                var animationSet = animationSets[i];
+                var animations = s_animationSetToAnimations[animationSet];
+
+                for (var j = 0; j < animations.Length; j++)
+                {
+                    animationData[animationIndex++] = animations[j];
+                }
+            }
+
+            animationSets.Dispose();
+            animationSetsToBaseIndex.Dispose();
+
+            // create a new buffer if the previous one is too small
+            if (s_animationDataBuffer == null || s_animationDataBuffer.count < animationData.Length)
+            {
+                Dispose(ref s_animationDataBuffer);
+            
+                s_animationDataBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(animationData.Length), AnimationData.k_size)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(AnimationData)}",
+                };
+            }
+            
+            s_animationDataBuffer.SetData(animationData, 0, 0, animationData.Length);
+            animationData.Dispose();
+            
+            Profiler.EndSample();
+        }
+        
+        static void UpdateInstanceBuffers()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateInstanceBuffers)}");
+
+            // get the instance count
+            var instanceCount = 0;
+            
+            for (var i = 0; i < s_providerStates.Length; i++)
+            {
+                instanceCount += ((NativeSlice<Instance>)s_providerStates[i].instances).Length;
+            }
+            
+            // find how many buckets we need in the scan rounded up
+            s_cullingThreadGroupCount = CeilDivide(instanceCount, Constants.k_cullingThreadsPerGroup);
+            s_scanInBucketThreadGroupCount = CeilDivide(instanceCount, Constants.k_scanBucketSize);
+            s_compactThreadGroupCount = CeilDivide(instanceCount, Constants.k_compactThreadsPerGroup);
+
+            // create new buffers if the previous ones are too small
+            if (!s_instanceData.IsCreated || s_instanceData.Length < instanceCount)
+            {
+                Dispose(ref s_instanceData);
+                
+                s_instanceData = new NativeArray<InstanceData>(
+                    instanceCount,
+                    Allocator.Persistent,
+                    NativeArrayOptions.UninitializedMemory
+                );
+            }
+            
+            if (s_instanceDataBuffer == null || s_instanceDataBuffer.count < instanceCount)
+            {
+                Dispose(ref s_instanceDataBuffer);
+                Dispose(ref s_isVisibleBuffer);
+                Dispose(ref s_isVisibleScanInBucketBuffer);
+                Dispose(ref s_instancePropertiesBuffer);
+
+                var count = Mathf.NextPowerOfTwo(instanceCount);
+                
+                s_instanceDataBuffer = new ComputeBuffer(count, InstanceData.k_size)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(InstanceData)}",
+                };
+                s_isVisibleBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_IsVisible",
+                };
+                s_isVisibleScanInBucketBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_isVisibleScanInBucket",
+                };
+                s_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(InstanceProperties)}",
+                };
+            }
+
+            if (s_isVisibleScanAcrossBucketsBuffer == null || s_isVisibleScanAcrossBucketsBuffer.count < s_scanInBucketThreadGroupCount)
+            {
+                Dispose(ref s_isVisibleScanAcrossBucketsBuffer);
+                
+                var count = Mathf.NextPowerOfTwo(s_scanInBucketThreadGroupCount);
+
+                s_isVisibleScanAcrossBucketsBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_isVisibleScanAcrossBuckets",
+                };
+            }
+            
+            Profiler.EndSample();
+        }
+
+        [BurstCompile(DisableSafetyChecks = true)]
+        struct UpdateInstancesJob : IJobParallelFor
+        {
+            [ReadOnly, NoAlias]
+            public NativeSlice<Instance> instances;
+            public ProviderState providerState;
+            public int instanceStart;
+            
+            [WriteOnly, NoAlias]
+            public NativeArray<InstanceData> instanceData;
+
+            /// <inheritdoc />
+            public void Execute(int i)
+            {
+                var instance = instances[i];
+
+                instanceData[instanceStart + i] = new InstanceData
+                {
+                    position = instance.transform.position,
+                    rotation = instance.transform.rotation,
+                    scale = instance.transform.scale,
+                    
+                    lodIndex = (uint)providerState.lodIndex,
+                    drawCallCount = (uint)providerState.drawCallCount,
+                    drawArgsBaseIndex = (uint)providerState.drawArgsBaseIndex,
+                    animationBaseIndex = (uint)providerState.animationBaseIndex,
+                    
+                    animationIndex = (uint)instance.animationIndex,
+                    animationTime = instance.animationTime,
+                };
+            }
+        }
+
+        static void UpdateInstances(bool forceUpdate)
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateInstances)}");
+
+            var updateJobs = new NativeArray<JobHandle>(
+                s_providerStates.Length,
+                Allocator.Temp,
+                NativeArrayOptions.UninitializedMemory
+            );
+            var jobCount = 0;
+            var currentInstances = 0;
+            
+            for (var i = 0; i < s_providerIndexCount; i++)
+            {
+                var providerIndex = s_providerIndices[i];
+                var state = s_providerStates[providerIndex];
+                var instances = (NativeSlice<Instance>)state.instances;
+                
+                if (forceUpdate || state.dirtyFlags.Intersects(DirtyFlags.PerInstanceData))
+                {
+                    var job = new UpdateInstancesJob
+                    {
+                        instances = instances,
+                        providerState = state,
+                        instanceStart = currentInstances,
+                        instanceData = s_instanceData,
+                    };
+
+                    updateJobs[jobCount++] = job.Schedule(instances.Length, 64);
+                }
+
+                currentInstances += instances.Length;
+            }
+
+            // schedule the instance updates and wait for completion.
+            var updateInstancesJob = JobHandle.CombineDependencies(updateJobs.Slice(0, jobCount));
+            updateInstancesJob.Complete();
+
+            // upload the instance data to the compute buffer
+            s_instanceDataBuffer.SetData(s_instanceData, 0, 0, s_instanceData.Length);
+            
+            Profiler.EndSample();
+        }
+        
         static void Cull(Camera cam)
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Cull)}");
@@ -622,399 +1015,40 @@ namespace AnimationInstancing
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Draw)}");
 
-            Profiler.EndSample();
-        }
+            s_cullingCmdBuffer.Clear();
 
-        static void UpdateLodBuffers()
-        {
-            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateLodBuffers)}");
-
-            // get the lod data for all instanced meshes
-            var lodData = new NativeArray<LodData>(
-                s_providerStates.Length, 
-                Allocator.Temp, 
-                NativeArrayOptions.UninitializedMemory
-            );
+            var bounds = new Bounds(Vector3.zero, float.MaxValue * Vector3.one);
             
-            for (var i = 0; i < s_providerStates.Length; i++)
-            {
-                var state = s_providerStates[i];
-
-                lodData[i] = state.renderState.lods;
-                state.lodIndex = i;
-
-                s_providerStates[i] = state;
-            }
+            var props = new MaterialPropertyBlock();
+            props.SetBuffer(Properties._DrawArgs, s_drawArgsBuffer);
+            props.SetBuffer(Properties._AnimationData, s_animationDataBuffer);
+            props.SetBuffer(Properties._InstanceProperties, s_instancePropertiesBuffer);
             
-            // create a new buffer if the previous one is too small
-            if (s_lodDataBuffer == null || s_lodDataBuffer.count < lodData.Length)
-            {
-                Dispose(ref s_lodDataBuffer);
-            
-                s_lodDataBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(lodData.Length), LodData.k_size)
-                {
-                    name = $"{nameof(InstancingManager)}_{nameof(LodData)}",
-                };
-            }
-            
-            s_lodDataBuffer.SetData(lodData, 0, 0, lodData.Length);
-            lodData.Dispose();
-            
-            Profiler.EndSample();
-        }
-
-        static void UpdateDrawArgsBuffers()
-        {
-            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateDrawArgsBuffers)}");
-
-            // Determine the number of individual draw calls required to render the instances.
-            // Each mesh/sub mesh/material combination requires a separate draw call.
-            var drawCallToDrawCallIndex = new NativeHashMap<DrawCall, int>(s_drawCalls.Count * 2, Allocator.Temp);
-
-            s_drawCalls.Clear();
-
-            // Find the ordering of the providers' instances in the instance data buffer. Instances
-            // Using the same mesh must be sequential in the buffer.
-            var meshToIndex = new NativeHashMap<MeshHandle, int>(s_providerStates.Length, Allocator.Temp);
-            var meshIndexToProviderIndices = new NativeMultiHashMap<int, int>(s_providerStates.Length, Allocator.Temp);
-
-            for (var i = 0; i < s_providerStates.Length; i++)
-            {
-                var state = s_providerStates[i];
-                var mesh = state.renderState.mesh;
-                var subMeshes = (NativeSlice<SubMesh>)state.subMeshes;
-                var lodCount = (int)state.renderState.lods.lodCount;
-
-                if (!meshToIndex.TryGetValue(mesh, out var meshIndex))
-                {
-                    meshIndex = meshToIndex.Count();
-                    meshToIndex.Add(mesh, meshIndex);
-                }
-                meshIndexToProviderIndices.Add(meshIndex, i);
-
-                for (var j = 0; j < lodCount; j++)
-                {
-                    for (var k = 0; k < subMeshes.Length; k++)
-                    {
-                        var subMesh = subMeshes[k];
-                        
-                        var drawCall = new DrawCall
-                        {
-                            mesh = mesh,
-                            subMesh = (subMeshes.Length * j) + subMesh.subMeshIndex,
-                            material = subMesh.materialHandle,
-                        };
-                
-                        if (!drawCallToDrawCallIndex.TryGetValue(drawCall, out var drawCallIndex))
-                        {
-                            // If we have not seen this parameter combination before, create a draw call 
-                            drawCallIndex = drawCallToDrawCallIndex.Count();
-                            drawCallToDrawCallIndex.Add(drawCall, drawCallIndex);
-
-                            s_drawCalls.Add(drawCall);
-                        }
-
-                        // We need to track where we can update the instance count/offset in the draw args buffer
-                        // instances from this provider from the culling/compact shader.
-                        if (j == 0 && k == 0)
-                        {
-                            state.drawArgsBaseIndex = drawCallIndex;
-                        }
-                    }
-                }
-
-                state.drawCallCount = subMeshes.Length;
-                s_providerStates[i] = state;
-            }
-
-            drawCallToDrawCallIndex.Dispose();
-
-            // flatten the provider index ordering map to an array for fast iteration
-            var providerIndexCount = meshIndexToProviderIndices.Count();
-            
-            if (!s_providerIndices.IsCreated || s_providerIndices.Length < providerIndexCount)
-            {
-                Dispose(ref s_providerIndices);
-                
-                s_providerIndices = new NativeArray<int>(
-                    providerIndexCount,
-                    Allocator.Persistent,
-                    NativeArrayOptions.UninitializedMemory
-                );
-            }
-            
-            var currentProvider = 0;
-            
-            for (var i = 0; i < meshToIndex.Count(); i++)
-            {
-                foreach (var providerIndex in meshIndexToProviderIndices.GetValuesForKey(i))
-                {
-                    s_providerIndices[currentProvider] = providerIndex;
-                    currentProvider++;
-                }
-            }
-
-            meshToIndex.Dispose();
-            meshIndexToProviderIndices.Dispose();
-            
-            // Allocate the draw args array. We upload this to the draw args compute buffer each frame to
-            // reset the instance counts, so it must be persistent.
-            if (!s_drawArgs.IsCreated || s_drawArgs.Length < s_drawCalls.Count)
-            {
-                Dispose(ref s_drawArgs);
-                
-                s_drawArgs = new NativeArray<DrawArgs>(
-                    s_drawCalls.Count,
-                    Allocator.Persistent,
-                    NativeArrayOptions.UninitializedMemory
-                );
-            }
-
-            // get the draw args for each draw call
             for (var i = 0; i < s_drawCalls.Count; i++)
             {
                 var drawCall = s_drawCalls[i];
-                var subMeshDrawArgs = s_meshToSubMeshDrawArgs[drawCall.mesh];
-                s_drawArgs[i] = subMeshDrawArgs[drawCall.subMesh];
-            }
-
-            // create a new buffer if the previous one is too small
-            if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < s_drawCalls.Count)
-            {
-                Dispose(ref s_drawArgsBuffer);
-            
-                s_drawArgsBuffer = new ComputeBuffer(
-                    Mathf.NextPowerOfTwo(s_drawCalls.Count),
-                    DrawArgs.k_size,
-                    ComputeBufferType.IndirectArguments
-                )
-                {
-                    name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
-                };
-            }
-
-            s_drawArgsBuffer.SetData(s_drawArgs, 0, 0, s_drawCalls.Count);
-
-            Profiler.EndSample();
-        }
-
-        static void UpdateAnimationBuffers()
-        {
-            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateAnimationBuffers)}");
-
-            // Find all the animation sets that are currently required for rendering, and
-            // determine the size required for the animation data buffer
-            var animationSetsToBaseIndex = new NativeHashMap<AnimationSetHandle, int>(0, Allocator.Temp);
-            var animationCount = 0;
-            
-            for (var i = 0; i < s_providerStates.Length; i++)
-            {
-                var state = s_providerStates[i];
-                var animationSet = state.renderState.animationSet;
-
-                if (!animationSetsToBaseIndex.TryGetValue(animationSet, out var baseIndex))
-                {
-                    baseIndex = animationCount;
-                    animationSetsToBaseIndex.Add(animationSet, baseIndex);
-
-                    animationCount += s_animationSetToAnimations[animationSet].Length;
-                }
+                var mesh = s_meshHandles.GetInstance(drawCall.mesh);
+                var material = s_materialHandles.GetInstance(drawCall.material);
+                var animationSet = s_animationSetHandles.GetInstance(drawCall.animation);
                 
-                state.animationBaseIndex = baseIndex;
-
-                s_providerStates[i] = state;
-            }
-
-            // get all the animation data 
-            var animationData = new NativeArray<AnimationData>(
-                animationCount,
-                Allocator.Temp,
-                NativeArrayOptions.UninitializedMemory
-            );
-            
-            var animationIndex = 0;
-            var animationSets = animationSetsToBaseIndex.GetKeyArray(Allocator.Temp);
-            
-            for (var i = 0; i < animationSets.Length; i++)
-            {
-                var animationSet = animationSets[i];
-                var animations = s_animationSetToAnimations[animationSet];
-
-                for (var j = 0; j < animations.Length; j++)
-                {
-                    animationData[animationIndex] = animations[i];
-                    animationIndex++;
-                }
-            }
-
-            animationSets.Dispose();
-            animationSetsToBaseIndex.Dispose();
-
-            // create a new buffer if the previous one is too small
-            if (s_animationDataBuffer == null || s_animationDataBuffer.count < animationData.Length)
-            {
-                Dispose(ref s_animationDataBuffer);
-            
-                s_animationDataBuffer = new ComputeBuffer(Mathf.NextPowerOfTwo(animationData.Length), AnimationData.k_size)
-                {
-                    name = $"{nameof(InstancingManager)}_{nameof(AnimationData)}",
-                };
-            }
-            
-            s_animationDataBuffer.SetData(animationData, 0, 0, animationData.Length);
-            animationData.Dispose();
-            
-            Profiler.EndSample();
-        }
-        
-        static void UpdateInstanceBuffers()
-        {
-            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateInstanceBuffers)}");
-
-            // get the instance count
-            var instanceCount = 0;
-            
-            for (var i = 0; i < s_providerStates.Length; i++)
-            {
-                instanceCount += ((NativeSlice<Instance>)s_providerStates[i].instances).Length;
-            }
-            
-            // find how many buckets we need in the scan rounded up
-            s_cullingThreadGroupCount = CeilDivide(instanceCount, Constants.k_cullingThreadsPerGroup);
-            s_scanInBucketThreadGroupCount = CeilDivide(instanceCount, Constants.k_scanBucketSize);
-            s_compactThreadGroupCount = CeilDivide(instanceCount, Constants.k_compactThreadsPerGroup);
-
-            // create new buffers if the previous ones are too small
-            if (!s_instanceData.IsCreated || s_instanceData.Length < instanceCount)
-            {
-                Dispose(ref s_instanceData);
+                props.SetInt(Properties._DrawArgsOffset, i);
+                props.SetTexture(Properties._Animation, animationSet.Texture);
                 
-                s_instanceData = new NativeArray<InstanceData>(
-                    instanceCount,
-                    Allocator.Persistent,
-                    NativeArrayOptions.UninitializedMemory
+                Graphics.DrawMeshInstancedIndirect(
+                    mesh,
+                    drawCall.subMesh,
+                    material,
+                    bounds,
+                    s_drawArgsBuffer,
+                    i * DrawArgs.k_size,
+                    props,
+                    ShadowCastingMode.Off
                 );
             }
-            
-            if (s_instanceDataBuffer == null || s_instanceDataBuffer.count < instanceCount)
-            {
-                Dispose(ref s_instanceDataBuffer);
-                Dispose(ref s_isVisibleBuffer);
-                Dispose(ref s_isVisibleScanInBucketBuffer);
-                Dispose(ref s_instancePropertiesBuffer);
 
-                var count = Mathf.NextPowerOfTwo(instanceCount);
-                
-                s_instanceDataBuffer = new ComputeBuffer(count, InstanceData.k_size)
-                {
-                    name = $"{nameof(InstancingManager)}_{nameof(InstanceData)}",
-                };
-                s_isVisibleBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_IsVisible",
-                };
-                s_isVisibleScanInBucketBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_isVisibleScanInBucket",
-                };
-                s_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
-                {
-                    name = $"{nameof(InstancingManager)}_{nameof(InstanceProperties)}",
-                };
-            }
-
-            if (s_isVisibleScanAcrossBucketsBuffer == null || s_isVisibleScanAcrossBucketsBuffer.count < s_scanInBucketThreadGroupCount)
-            {
-                Dispose(ref s_isVisibleScanAcrossBucketsBuffer);
-                
-                var count = Mathf.NextPowerOfTwo(s_scanInBucketThreadGroupCount);
-
-                s_isVisibleScanAcrossBucketsBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_isVisibleScanAcrossBuckets",
-                };
-            }
-            
             Profiler.EndSample();
         }
 
-        [BurstCompile(DisableSafetyChecks = true)]
-        struct UpdateInstancesJob : IJobParallelFor
-        {
-            [ReadOnly, NoAlias]
-            public NativeSlice<Instance> instances;
-            public ProviderState providerState;
-            public int instanceStart;
-            
-            [WriteOnly, NoAlias]
-            public NativeArray<InstanceData> instanceData;
-
-            /// <inheritdoc />
-            public void Execute(int i)
-            {
-                var instance = instances[i];
-
-                instanceData[instanceStart + i] = new InstanceData
-                {
-                    position = instance.transform.position,
-                    rotation = instance.transform.rotation,
-                    scale = instance.transform.scale,
-                    
-                    lodIndex = (uint)providerState.lodIndex,
-                    drawCallCount = (uint)providerState.drawCallCount,
-                    drawArgsBaseIndex = (uint)providerState.drawArgsBaseIndex,
-                    animationBaseIndex = (uint)providerState.animationBaseIndex,
-                    
-                    animationIndex = (uint)instance.animationIndex,
-                    animationTime = instance.animationTime,
-                };
-            }
-        }
-
-        static void UpdateInstances(bool forceUpdate)
-        {
-            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateInstances)}");
-
-            var updateJobs = new NativeArray<JobHandle>(
-                s_providerStates.Length,
-                Allocator.Temp,
-                NativeArrayOptions.UninitializedMemory
-            );
-            var jobCount = 0;
-            var currentInstances = 0;
-            
-            for (var i = 0; i < s_providerIndices.Length; i++)
-            {
-                var providerIndex = s_providerIndices[i];
-                var state = s_providerStates[providerIndex];
-                var instances = (NativeSlice<Instance>)state.instances;
-                
-                if (forceUpdate || state.dirtyFlags.Intersects(DirtyFlags.PerInstanceData))
-                {
-                    var job = new UpdateInstancesJob
-                    {
-                        instances = instances,
-                        providerState = state,
-                        instanceStart = currentInstances,
-                        instanceData = s_instanceData,
-                    };
-
-                    updateJobs[jobCount++] = job.Schedule(instances.Length, 64);
-                }
-
-                currentInstances += instances.Length;
-            }
-
-            // schedule the instance updates and wait for completion.
-            var updateInstancesJob = JobHandle.CombineDependencies(updateJobs.Slice(0, jobCount));
-            updateInstancesJob.Complete();
-
-            // upload the instance data to the compute buffer
-            s_instanceDataBuffer.SetData(s_instanceData, 0, 0, s_instanceData.Length);
-            
-            Profiler.EndSample();
-        }
-        
         static bool CreateResources()
         {
             if (s_resourcesInitialized)
@@ -1056,6 +1090,10 @@ namespace AnimationInstancing
             s_cullingCmdBuffer = new CommandBuffer
             {
                 name = $"{nameof(InstancingManager)}_InstanceCulling",
+            };
+            s_drawingCmdBuffer = new CommandBuffer
+            {
+                name = $"{nameof(InstancingManager)}_InstanceDrawing",
             };
 
             // create constant buffers
@@ -1099,6 +1137,7 @@ namespace AnimationInstancing
 
             // dispose command buffers
             Dispose(ref s_cullingCmdBuffer);
+            Dispose(ref s_drawingCmdBuffer);
 
             // dispose constant buffers
             Dispose(ref s_cullingProperties);
@@ -1122,6 +1161,7 @@ namespace AnimationInstancing
             Dispose(ref s_drawArgs);
             Dispose(ref s_providerIndices);
             Dispose(ref s_instanceData);
+            s_providerIndexCount = 0;
             
             // clear managed state
             s_drawCalls.Clear();

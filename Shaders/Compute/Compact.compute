@@ -22,7 +22,7 @@ void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
         InstanceProperties properties;
         properties.model = TRS(data.position, data.rotation, data.scale);
         properties.modelInv =  InvertMatrix(properties.model);
-        properties.animationIndex = data.animationIndex;
+        properties.animationIndex = data.animationBaseIndex + data.animationIndex;
         properties.animationTime = data.animationTime;
         
         uint instanceOutIndex = _ScanInBucket[tID] + (groupID > 0 ? _ScanAcrossBuckets[groupID] : 0);

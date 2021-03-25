@@ -23,6 +23,7 @@ namespace AnimationInstancing
         AnimationSetHandle m_animationSetHandle;
         NativeArray<Instance> m_instances;
         NativeArray<SubMesh> m_subMeshes;
+        NativeArray<float> m_animationLengths;
         
         /// <inheritdoc />
         public DirtyFlags DirtyFlags { get; private set; } = DirtyFlags.All;
@@ -48,14 +49,20 @@ namespace AnimationInstancing
             m_animationSetHandle = InstancingManager.RegisterAnimationSet(m_animationAsset.AnimationSet);
             
             m_instances = new NativeArray<Instance>(m_instanceCount, Allocator.Persistent);
+            
             m_subMeshes = new NativeArray<SubMesh>(1, Allocator.Persistent);
-
             m_subMeshes[0] = new SubMesh
             {
                 materialHandle = m_materialHandle,
                 subMeshIndex = 0,
             };
             
+            m_animationLengths = new NativeArray<float>(m_animationAsset.AnimationSet.Animations.Length, Allocator.Persistent);
+            for (var i = 0; i < m_animationLengths.Length; i++)
+            {
+                m_animationLengths[i] =  m_animationAsset.AnimationSet.Animations[i].Length;
+            }
+
             DirtyFlags = DirtyFlags.All;
         }
 
@@ -63,6 +70,7 @@ namespace AnimationInstancing
         {
             Dispose(ref m_instances);
             Dispose(ref m_subMeshes);
+            Dispose(ref m_animationLengths);
          
             InstancingManager.DeregisterMesh(m_meshHandle);
             InstancingManager.DeregisterMaterial(m_materialHandle);
@@ -84,37 +92,27 @@ namespace AnimationInstancing
 
         void Update()
         {
-            Deinit();
-            Init();
-            
-            var animations = new NativeArray<float>(m_animationAsset.AnimationSet.Animations.Length, Allocator.TempJob);
-
-            for (var i = 0; i < animations.Length; i++)
-            {
-                animations[i] =  m_animationAsset.AnimationSet.Animations[i].Length;
-            }
-
             var configureInstancesJob = new ConfigureInstancesJob
             {
-                animationLengths = animations,
+                animationLengths = m_animationLengths,
                 basePosition = transform.position,
-                instanceCount = m_instanceCount,
                 time = Time.time,
                 instances = m_instances,
             };
             
-            var handle = configureInstancesJob.Schedule(m_instanceCount, 64);
+            var handle = configureInstancesJob.Schedule(m_instances.Length, 64);
             handle.Complete();
+
+            DirtyFlags |= DirtyFlags.PerInstanceData;
         }
         
         [BurstCompile(DisableSafetyChecks = true)]
         struct ConfigureInstancesJob : IJobParallelFor
         {
-            [ReadOnly, NoAlias, DeallocateOnJobCompletion]
+            [ReadOnly, NoAlias]
             public NativeArray<float> animationLengths;
             
             public float3 basePosition;
-            public int instanceCount;
             public float time;
 
             [WriteOnly, NoAlias]
@@ -122,7 +120,7 @@ namespace AnimationInstancing
             
             public void Execute(int i)
             {
-                var edgeLength = Mathf.CeilToInt(Mathf.Sqrt(instanceCount));
+                var edgeLength = Mathf.CeilToInt(Mathf.Sqrt(instances.Length));
                 var pos = new float3(-Mathf.Repeat(i, edgeLength), 0, -Mathf.Floor(i / edgeLength));
                 var animationIndex = i % animationLengths.Length;
                 

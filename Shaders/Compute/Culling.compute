@@ -26,7 +26,7 @@ uint FrustumCull(float4 clipPos)
 uint IsOutsideBounds(float3 pos, float3 center, float3 extents)
 {
     float3 disp = pos - center;
-    return dot(disp, disp) > dot(extents, extents);
+    return dot(disp, disp) > 2 * dot(extents, extents);
 }
 
 float GetLodDistance(float screenHeight, float maxExtent)
@@ -45,12 +45,11 @@ void CSMain(uint tID : SV_DispatchThreadID)
 
     // calculate the local to world matrix and mvp for the instance
     float4x4 modelMat = TRS(instance.position, instance.rotation, instance.scale);
-    float4x4 mvp = modelMat * _ViewProj;
+    float4x4 mvp = mul(_ViewProj, modelMat);
 
     // determine if the instance is visible in the frustum
-    float3 scaledExtents = animation.bounds.extents * instance.scale;
-    float3 minCorner = animation.bounds.center - scaledExtents;
-    float3 maxCorner = animation.bounds.center + scaledExtents;
+    float3 minCorner = animation.bounds.center - animation.bounds.extents;
+    float3 maxCorner = animation.bounds.center + animation.bounds.extents;
 
     float4 corners[8];
     corners[0] = float4(minCorner.x, minCorner.y, minCorner.z, 1.0);
@@ -72,7 +71,8 @@ void CSMain(uint tID : SV_DispatchThreadID)
 
     // if the camera is in the instance bounds we cannot frustum cull
     float3 worldCenter = mul(modelMat, float4(animation.bounds.center, 1.0)).xyz;
-    float distanceToCamera = distance(worldCenter, _CameraPosition) / _LodBias;
+    float distanceToCamera = distance(_CameraPosition, worldCenter) / _LodBias;
+    float3 scaledExtents = animation.bounds.extents * instance.scale;
     float maxExtent = max(max(scaledExtents.x, scaledExtents.y), scaledExtents.z);
 
     uint isVisible = 1;
