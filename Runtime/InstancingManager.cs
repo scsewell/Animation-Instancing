@@ -83,6 +83,7 @@ namespace AnimationInstancing
         static KernelInfo s_compactKernel;
 
         static ComputeBuffer s_cullingConstantBuffer;
+        static ComputeBuffer s_sortingConstantBuffer;
         static NativeArray<CullingPropertyBuffer> s_cullingProperties;
         
         static CommandBuffer s_cullingCmdBuffer;
@@ -96,9 +97,15 @@ namespace AnimationInstancing
         static ComputeBuffer s_isVisibleBuffer;
         static ComputeBuffer s_isVisibleScanInBucketBuffer;
         static ComputeBuffer s_isVisibleScanAcrossBucketsBuffer;
+        static ComputeBuffer s_sortKeysInBuffer;
+        static ComputeBuffer s_sortKeysOutBuffer;
+        static ComputeBuffer s_sortScratchBuffer;
+        static ComputeBuffer s_sortReducedScratchBuffer;
         static ComputeBuffer s_instancePropertiesBuffer;
         static int s_cullingThreadGroupCount;
         static int s_scanInBucketThreadGroupCount;
+        static int s_sortThreadGroupCount;
+        static int s_sortReducedThreadGroupCount;
         static int s_compactThreadGroupCount;
 
         static NativeArray<DrawArgs> s_drawArgs;
@@ -665,7 +672,7 @@ namespace AnimationInstancing
                 s_providerStates[i] = state;
             }
 
-            // get all the animation data 
+            // get all the animation data
             var animationData = new NativeArray<AnimationData>(
                 animationCount,
                 Allocator.Temp,
@@ -718,10 +725,48 @@ namespace AnimationInstancing
                 instanceCount += ((NativeSlice<Instance>)s_providerStates[i].instances).Length;
             }
             
-            // find how many buckets we need in the scan rounded up
+            // find how many thread groups we should use for the culling shaders
             s_cullingThreadGroupCount = CeilDivide(instanceCount, s_cullingKernel.threadGroupSizeX);
             s_scanInBucketThreadGroupCount = CeilDivide(instanceCount, Constants.k_scanBucketSize);
             s_compactThreadGroupCount = CeilDivide(instanceCount, s_compactKernel.threadGroupSizeX);
+
+            // determine the properties of the sorting pass needed for the current instance count
+            var blockSize = Constants.k_sortElementsPerThread * s_sortCountKernel.threadGroupSizeX;
+            var numBlocks = (instanceCount + blockSize - 1) / blockSize;
+            var numReducedBlocks = (numBlocks + numBlocks - 1) / numBlocks;
+            
+            s_sortThreadGroupCount = 800;
+            var numThreadGroupsWithAdditionalBlocks = numBlocks % s_sortThreadGroupCount;
+            var blocksPerThreadGroup = numBlocks / s_sortThreadGroupCount;
+
+            if (numBlocks < s_sortThreadGroupCount)
+            {
+                s_sortThreadGroupCount = numBlocks;
+                numThreadGroupsWithAdditionalBlocks = 0;
+                blocksPerThreadGroup = 1;
+            }
+            
+            var reducedThreadGroupCountPerBin = (blockSize > s_sortThreadGroupCount) ? 1 : ((s_sortThreadGroupCount + blockSize - 1) / blockSize);
+            s_sortReducedThreadGroupCount = Constants.k_sortBinCount * reducedThreadGroupCountPerBin;
+
+            var sortingProperties = new NativeArray<SortingPropertyBuffer>(1, Allocator.Temp, NativeArrayOptions.UninitializedMemory)
+            {
+                [0] = new SortingPropertyBuffer
+                {
+                    _NumKeys = (uint)instanceCount,
+                    _NumBlocksPerThreadGroup = blocksPerThreadGroup,
+                    _NumThreadGroups = (uint)s_sortThreadGroupCount,
+                    _NumThreadGroupsWithAdditionalBlocks = (uint)numThreadGroupsWithAdditionalBlocks,
+                    _NumReduceThreadGroupPerBin = (uint)reducedThreadGroupCountPerBin,
+                    _NumScanValues = (uint)s_sortReducedThreadGroupCount,
+                },
+            };
+            
+            s_sortingConstantBuffer.SetData(sortingProperties);
+            sortingProperties.Dispose();
+
+            var sortScratchBufferSize = Constants.k_sortBinCount * numBlocks;
+            var sortReducedScratchBufferSize = Constants.k_sortBinCount * numReducedBlocks;
 
             // create new buffers if the previous ones are too small
             if (!s_instanceData.IsCreated || s_instanceData.Length < instanceCount)
@@ -740,6 +785,8 @@ namespace AnimationInstancing
                 Dispose(ref s_instanceDataBuffer);
                 Dispose(ref s_isVisibleBuffer);
                 Dispose(ref s_isVisibleScanInBucketBuffer);
+                Dispose(ref s_sortKeysInBuffer);
+                Dispose(ref s_sortKeysOutBuffer);
                 Dispose(ref s_instancePropertiesBuffer);
 
                 var count = Mathf.NextPowerOfTwo(instanceCount);
@@ -754,7 +801,15 @@ namespace AnimationInstancing
                 };
                 s_isVisibleScanInBucketBuffer = new ComputeBuffer(count, sizeof(uint))
                 {
-                    name = $"{nameof(InstancingManager)}_isVisibleScanInBucket",
+                    name = $"{nameof(InstancingManager)}_IsVisibleScanInBucket",
+                };
+                s_sortKeysInBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_SortKeysInBuffer",
+                };
+                s_sortKeysOutBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_SortKeysOutBuffer",
                 };
                 s_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
                 {
@@ -770,14 +825,38 @@ namespace AnimationInstancing
 
                 s_isVisibleScanAcrossBucketsBuffer = new ComputeBuffer(count, sizeof(uint))
                 {
-                    name = $"{nameof(InstancingManager)}_isVisibleScanAcrossBuckets",
+                    name = $"{nameof(InstancingManager)}_IsVisibleScanAcrossBuckets",
+                };
+            }
+
+            if (s_sortScratchBuffer == null || s_sortScratchBuffer.count < sortScratchBufferSize)
+            {
+                Dispose(ref s_sortScratchBuffer);
+                
+                var count = Mathf.NextPowerOfTwo(sortScratchBufferSize);
+
+                s_sortScratchBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_SortScratchBuffer",
+                };
+            }
+            
+            if (s_sortReducedScratchBuffer == null || s_sortReducedScratchBuffer.count < sortReducedScratchBufferSize)
+            {
+                Dispose(ref s_sortReducedScratchBuffer);
+                
+                var count = Mathf.NextPowerOfTwo(sortReducedScratchBufferSize);
+
+                s_sortReducedScratchBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_SortReducedScratchBuffer",
                 };
             }
             
             Profiler.EndSample();
         }
 
-        [BurstCompile(DisableSafetyChecks = true)]
+        [BurstCompile]
         struct UpdateInstancesJob : IJobParallelFor
         {
             [ReadOnly, NoAlias]
@@ -962,6 +1041,147 @@ namespace AnimationInstancing
                 1, 1, 1
             );
             
+            // sort
+            s_cullingCmdBuffer.SetComputeConstantBufferParam(
+                s_sortShader,
+                Properties.Sort._ConstantBuffer,
+                s_sortingConstantBuffer,
+                0,
+                SortingPropertyBuffer.k_size
+            );
+
+            var sortKeysInBuffer = s_sortKeysInBuffer;
+            var sortKeysOutBuffer = s_sortKeysOutBuffer;
+            
+            for (var shift = 0; shift < 32; shift += Constants.k_sortBitsPerPass)
+            {
+                s_cullingCmdBuffer.SetComputeIntParam(
+                    s_sortShader,
+                    Properties.Sort._ShiftBit,
+                    shift
+                );
+
+                // count
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortCountKernel.kernelID,
+                    Properties.Sort._SrcBuffer,
+                    sortKeysInBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortCountKernel.kernelID,
+                    Properties.Sort._SumTable,
+                    s_sortScratchBuffer
+                );
+                
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortCountKernel.kernelID, 
+                    s_sortThreadGroupCount, 1, 1
+                );
+                
+                // reduce
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortCountReduceKernel.kernelID,
+                    Properties.Sort._SumTable,
+                    s_sortScratchBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortCountReduceKernel.kernelID,
+                    Properties.Sort._ReduceTable,
+                    s_sortReducedScratchBuffer
+                );
+                
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortCountReduceKernel.kernelID, 
+                    s_sortReducedThreadGroupCount, 1, 1
+                );
+                
+                // scan
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScanKernel.kernelID,
+                    Properties.Sort._ScanSrc,
+                    s_sortReducedScratchBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScanKernel.kernelID,
+                    Properties.Sort._ScanDst,
+                    s_sortReducedScratchBuffer
+                );
+
+                var maxReducedThreadGroupCount = Constants.k_sortElementsPerThread * s_sortScanKernel.threadGroupSizeX;
+                Debug.Assert(s_sortReducedThreadGroupCount < maxReducedThreadGroupCount, "Need to account for bigger reduced histogram scan!");
+
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortScanKernel.kernelID, 
+                    1, 1, 1
+                );
+
+                // scan add
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScanAddKernel.kernelID,
+                    Properties.Sort._ScanSrc,
+                    s_sortScratchBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScanAddKernel.kernelID,
+                    Properties.Sort._ScanDst,
+                    s_sortScratchBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScanAddKernel.kernelID,
+                    Properties.Sort._ScanScratch,
+                    s_sortReducedScratchBuffer
+                );
+
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortScanAddKernel.kernelID, 
+                    s_sortReducedThreadGroupCount, 1, 1
+                );
+
+                // scatter
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScatterKernel.kernelID,
+                    Properties.Sort._SrcBuffer,
+                    sortKeysInBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScatterKernel.kernelID,
+                    Properties.Sort._SumTable,
+                    s_sortScratchBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScatterKernel.kernelID,
+                    Properties.Sort._DstBuffer,
+                    sortKeysOutBuffer
+                );
+                
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortScatterKernel.kernelID, 
+                    s_sortThreadGroupCount, 1, 1
+                );
+
+                // alternate which buffer we are sorting into
+                var lastSortKeysInBuffer = sortKeysInBuffer;
+                sortKeysInBuffer = sortKeysOutBuffer;
+                sortKeysOutBuffer = lastSortKeysInBuffer;
+            }
+            
             // compact
             s_cullingCmdBuffer.SetComputeConstantBufferParam(
                 s_compactShader,
@@ -1127,6 +1347,15 @@ namespace AnimationInstancing
                 name = $"{nameof(InstancingManager)}_{nameof(CullingPropertyBuffer)}",
             };
             
+            s_sortingConstantBuffer = new ComputeBuffer(
+                1,
+                SortingPropertyBuffer.k_size,
+                ComputeBufferType.Constant
+            )
+            {
+                name = $"{nameof(InstancingManager)}_{nameof(SortingPropertyBuffer)}",
+            };
+            
             s_resourcesInitialized = true;
             return true;
         }
@@ -1166,7 +1395,9 @@ namespace AnimationInstancing
 
             // dispose constant buffers
             Dispose(ref s_cullingProperties);
+            
             Dispose(ref s_cullingConstantBuffer);
+            Dispose(ref s_sortingConstantBuffer);
 
             // dispose compute buffers
             Dispose(ref s_lodDataBuffer);
@@ -1177,6 +1408,10 @@ namespace AnimationInstancing
             Dispose(ref s_isVisibleBuffer);
             Dispose(ref s_isVisibleScanInBucketBuffer);
             Dispose(ref s_isVisibleScanAcrossBucketsBuffer);
+            Dispose(ref s_sortKeysInBuffer);
+            Dispose(ref s_sortKeysOutBuffer);
+            Dispose(ref s_sortScratchBuffer);
+            Dispose(ref s_sortReducedScratchBuffer);
             Dispose(ref s_instancePropertiesBuffer);
             
             s_cullingThreadGroupCount = 0;

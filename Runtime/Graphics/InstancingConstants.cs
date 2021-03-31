@@ -16,6 +16,21 @@ namespace AnimationInstancing
         /// The number of elements processed in a scan bucket.
         /// </summary>
         internal const int k_scanBucketSize = 512;
+        
+        /// <summary>
+        /// The number of elements processed by each thread.
+        /// </summary>
+        internal const int k_sortElementsPerThread = 4;
+        
+        /// <summary>
+        /// The number of bits of the keys that are processed in a single sorting pass.
+        /// </summary>
+        internal const int k_sortBitsPerPass = 4;
+        
+        /// <summary>
+        /// The number of sorting bins needed per thread.
+        /// </summary>
+        internal const int k_sortBinCount = (1 << k_sortBitsPerPass);
     }
 
     /// <summary>

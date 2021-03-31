@@ -109,4 +109,17 @@ namespace AnimationInstancing
         public int _ScanBucketCount;
         public int _DrawArgsCount;
     }
+    
+    [StructLayout(LayoutKind.Sequential)]
+    struct SortingPropertyBuffer
+    {
+        public static readonly int k_size = Marshal.SizeOf<SortingPropertyBuffer>();
+
+        public uint _NumKeys;
+        public int  _NumBlocksPerThreadGroup;
+        public uint _NumThreadGroups;
+        public uint _NumThreadGroupsWithAdditionalBlocks;
+        public uint _NumReduceThreadGroupPerBin;
+        public uint _NumScanValues;
+    }
 }
