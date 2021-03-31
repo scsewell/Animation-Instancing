@@ -1,3 +1,20 @@
+// Copyright (c) 2020 Advanced Micro Devices, Inc. All rights reserved.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
 #include "HLSLSupport.cginc"
 
 // required to use wave instrinsics
@@ -15,23 +32,23 @@
 #define BIN_COUNT               (1 << BITS_PER_PASS)
 
 
-CBUFFER_START(RadixSortPropertyBuffer)
+CBUFFER_START(SortingPropertyBuffer)
 uint _NumKeys;
 int  _NumBlocksPerThreadGroup;
 uint _NumThreadGroups;
 uint _NumThreadGroupsWithAdditionalBlocks;
-uint _NumReduceThreadgroupPerBin;
+uint _NumReduceThreadGroupPerBin;
 uint _NumScanValues;
 CBUFFER_END
 
 uint _ShiftBit;
-RWStructuredBuffer<uint>    _SrcBuffer;     // The unsorted keys or scan data
-RWStructuredBuffer<uint>    _DstBuffer;     // The sorted keys or prefixed data
-RWStructuredBuffer<uint>    _SumTable;      // The sum table we will write sums to
-RWStructuredBuffer<uint>    _ReduceTable;   // The reduced sum table we will write sums to
-RWStructuredBuffer<uint>    _ScanSrc;       // Source for Scan Data
-RWStructuredBuffer<uint>    _ScanDst;       // Destination for Scan Data
-RWStructuredBuffer<uint>    _ScanScratch;   // Scratch data for Scan
+RWStructuredBuffer<uint> _SrcBuffer;    // The unsorted keys or scan data
+RWStructuredBuffer<uint> _DstBuffer;    // The sorted keys or prefixed data
+RWStructuredBuffer<uint> _SumTable;     // The sum table we will write sums to
+RWStructuredBuffer<uint> _ReduceTable;  // The reduced sum table we will write sums to
+RWStructuredBuffer<uint> _ScanSrc;      // Source for Scan Data
+RWStructuredBuffer<uint> _ScanDst;      // Destination for Scan Data
+RWStructuredBuffer<uint> _ScanScratch;  // Scratch data for Scan
 
 
 groupshared uint gs_Histogram[THREAD_GROUP_SIZE * BIN_COUNT];
@@ -164,11 +181,11 @@ uint BlockScanPrefix(uint localSum, uint localID)
 void CountReduce(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
 {
     // Figure out what bin data we are reducing
-    uint binID = groupID / _NumReduceThreadgroupPerBin;
+    uint binID = groupID / _NumReduceThreadGroupPerBin;
     uint binOffset = binID * _NumThreadGroups;
 
     // Get the base index for this thread group
-    uint baseIndex = (groupID % _NumReduceThreadgroupPerBin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
+    uint baseIndex = (groupID % _NumReduceThreadGroupPerBin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
 
     // Calculate partial sums for entries this thread reads in
     uint threadgroupSum = 0;
@@ -266,11 +283,11 @@ void ScanAdd(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
     // has a more specialized access pattern to match optimized count
     // Access needs to be done similarly to reduce
     // Figure out what bin data we are reducing
-    uint binID = groupID / _NumReduceThreadgroupPerBin;
+    uint binID = groupID / _NumReduceThreadGroupPerBin;
     uint binOffset = binID * _NumThreadGroups;
 
     // Get the base index for this thread group
-    uint baseIndex = (groupID % _NumReduceThreadgroupPerBin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
+    uint baseIndex = (groupID % _NumReduceThreadGroupPerBin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
 
     ScanPrefix(localID, groupID, binOffset, baseIndex, true);
 }

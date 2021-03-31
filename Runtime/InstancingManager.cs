@@ -20,6 +20,14 @@ namespace AnimationInstancing
     /// </summary>
     public class InstancingManager
     {
+        struct KernelInfo
+        {
+            public int kernelID;
+            public int threadGroupSizeX;
+            public int threadGroupSizeY;
+            public int threadGroupSizeZ;
+        }
+        
         struct ProviderState
         {
             public DirtyFlags dirtyFlags;
@@ -57,40 +65,22 @@ namespace AnimationInstancing
                 return (((mesh.GetHashCode() * 397) ^ material.GetHashCode()) * 397) ^ subMesh;
             }
         }
-        //
-        // struct DrawCallA : IEquatable<DrawCallA>
-        // {
-        //     public Mesh mesh;
-        //     public int subMesh;
-        //     public Material material;
-        //
-        //     public bool Equals(DrawCallA other)
-        //     {
-        //         return mesh == other.mesh &&
-        //                subMesh == other.subMesh &&
-        //                material == other.material;
-        //     }
-        //
-        //     public override bool Equals(object obj)
-        //     {
-        //         return obj is DrawCallA other && Equals(other);
-        //     }
-        //
-        //     public override int GetHashCode()
-        //     {
-        //         return (((mesh.GetHashCode() * 397) ^ material.GetHashCode()) * 397) ^ subMesh;
-        //     }
-        // }
         
         static bool s_resourcesInitialized;
         static InstancingResources s_resources;
         static ComputeShader s_cullingShader;
         static ComputeShader s_scanShader;
+        static ComputeShader s_sortShader;
         static ComputeShader s_compactShader;
-        static int s_cullingKernel;
-        static int s_scanInBucketKernel;
-        static int s_scanAcrossBucketsKernel;
-        static int s_compactKernel;
+        static KernelInfo s_cullingKernel;
+        static KernelInfo s_scanInBucketKernel;
+        static KernelInfo s_scanAcrossBucketsKernel;
+        static KernelInfo s_sortCountKernel;
+        static KernelInfo s_sortCountReduceKernel;
+        static KernelInfo s_sortScanKernel;
+        static KernelInfo s_sortScanAddKernel;
+        static KernelInfo s_sortScatterKernel;
+        static KernelInfo s_compactKernel;
 
         static ComputeBuffer s_cullingConstantBuffer;
         static NativeArray<CullingPropertyBuffer> s_cullingProperties;
@@ -729,9 +719,9 @@ namespace AnimationInstancing
             }
             
             // find how many buckets we need in the scan rounded up
-            s_cullingThreadGroupCount = CeilDivide(instanceCount, Constants.k_cullingThreadsPerGroup);
+            s_cullingThreadGroupCount = CeilDivide(instanceCount, s_cullingKernel.threadGroupSizeX);
             s_scanInBucketThreadGroupCount = CeilDivide(instanceCount, Constants.k_scanBucketSize);
-            s_compactThreadGroupCount = CeilDivide(instanceCount, Constants.k_compactThreadsPerGroup);
+            s_compactThreadGroupCount = CeilDivide(instanceCount, s_compactKernel.threadGroupSizeX);
 
             // create new buffers if the previous ones are too small
             if (!s_instanceData.IsCreated || s_instanceData.Length < instanceCount)
@@ -891,141 +881,141 @@ namespace AnimationInstancing
             s_cullingCmdBuffer.SetBufferData(s_cullingConstantBuffer, s_cullingProperties);
             s_cullingCmdBuffer.SetComputeConstantBufferParam(
                 s_cullingShader,
-                Properties._CullingPropertyBuffer,
+                Properties.Culling._ConstantBuffer,
                 s_cullingConstantBuffer,
                 0,
                 CullingPropertyBuffer.k_size
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_cullingShader,
-                s_cullingKernel,
-                Properties._LodData,
+                s_cullingKernel.kernelID,
+                Properties.Culling._LodData,
                 s_lodDataBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_cullingShader,
-                s_cullingKernel,
-                Properties._AnimationData,
+                s_cullingKernel.kernelID,
+                Properties.Culling._AnimationData,
                 s_animationDataBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_cullingShader,
-                s_cullingKernel,
-                Properties._InstanceData,
+                s_cullingKernel.kernelID,
+                Properties.Culling._InstanceData,
                 s_instanceDataBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_cullingShader,
-                s_cullingKernel,
-                Properties._DrawArgs,
+                s_cullingKernel.kernelID,
+                Properties.Culling._DrawArgs,
                 s_drawArgsBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_cullingShader,
-                s_cullingKernel,
-                Properties._IsVisible,
+                s_cullingKernel.kernelID,
+                Properties.Culling._IsVisible,
                 s_isVisibleBuffer
             );
             
             s_cullingCmdBuffer.DispatchCompute(
                 s_cullingShader,
-                s_cullingKernel, 
+                s_cullingKernel.kernelID, 
                 s_cullingThreadGroupCount, 1, 1
             );
             
             // scan
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_scanShader,
-                s_scanInBucketKernel,
-                Properties._ScanIn,
+                s_scanInBucketKernel.kernelID,
+                Properties.Scan._ScanIn,
                 s_isVisibleBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_scanShader, 
-                s_scanInBucketKernel,
-                Properties._ScanIntermediate,
+                s_scanInBucketKernel.kernelID,
+                Properties.Scan._ScanIntermediate,
                 s_isVisibleScanAcrossBucketsBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_scanShader,
-                s_scanInBucketKernel,
-                Properties._ScanOut,
+                s_scanInBucketKernel.kernelID,
+                Properties.Scan._ScanOut,
                 s_isVisibleScanInBucketBuffer
             );
             
             s_cullingCmdBuffer.DispatchCompute(
                 s_scanShader,
-                s_scanInBucketKernel, 
+                s_scanInBucketKernel.kernelID, 
                 s_scanInBucketThreadGroupCount, 1, 1
             );
             
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_scanShader, 
-                s_scanAcrossBucketsKernel,
-                Properties._ScanOut,
+                s_scanAcrossBucketsKernel.kernelID,
+                Properties.Scan._ScanOut,
                 s_isVisibleScanAcrossBucketsBuffer
             );
 
             s_cullingCmdBuffer.DispatchCompute(
                 s_scanShader,
-                s_scanAcrossBucketsKernel, 
+                s_scanAcrossBucketsKernel.kernelID, 
                 1, 1, 1
             );
             
             // compact
             s_cullingCmdBuffer.SetComputeConstantBufferParam(
                 s_compactShader,
-                Properties._CullingPropertyBuffer,
+                Properties.Compact._ConstantBuffer,
                 s_cullingConstantBuffer,
                 0,
                 CullingPropertyBuffer.k_size
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
-                s_compactKernel,
-                Properties._InstanceData,
+                s_compactKernel.kernelID,
+                Properties.Compact._InstanceData,
                 s_instanceDataBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
-                s_compactKernel,
-                Properties._IsVisible,
+                s_compactKernel.kernelID,
+                Properties.Compact._IsVisible,
                 s_isVisibleBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
-                s_compactKernel,
-                Properties._ScanInBucket,
+                s_compactKernel.kernelID,
+                Properties.Compact._ScanInBucket,
                 s_isVisibleScanInBucketBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
-                s_compactKernel,
-                Properties._ScanAcrossBuckets,
+                s_compactKernel.kernelID,
+                Properties.Compact._ScanAcrossBuckets,
                 s_isVisibleScanAcrossBucketsBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
-                s_compactKernel,
-                Properties._DrawCallCounts,
+                s_compactKernel.kernelID,
+                Properties.Compact._DrawCallCounts,
                 s_drawCallCountsBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
-                s_compactKernel,
-                Properties._DrawArgs,
+                s_compactKernel.kernelID,
+                Properties.Compact._DrawArgs,
                 s_drawArgsBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
-                s_compactKernel,
-                Properties._InstanceProperties,
+                s_compactKernel.kernelID,
+                Properties.Compact._InstanceProperties,
                 s_instancePropertiesBuffer
             );
             
             s_cullingCmdBuffer.DispatchCompute(
                 s_compactShader,
-                s_compactKernel, 
+                s_compactKernel.kernelID, 
                 s_compactThreadGroupCount, 1, 1
             );
             
@@ -1043,9 +1033,9 @@ namespace AnimationInstancing
             var bounds = new Bounds(Vector3.zero, float.MaxValue * Vector3.one);
             
             var props = new MaterialPropertyBlock();
-            props.SetBuffer(Properties._DrawArgs, s_drawArgsBuffer);
-            props.SetBuffer(Properties._AnimationData, s_animationDataBuffer);
-            props.SetBuffer(Properties._InstanceProperties, s_instancePropertiesBuffer);
+            props.SetBuffer(Properties.Main._DrawArgs, s_drawArgsBuffer);
+            props.SetBuffer(Properties.Main._AnimationData, s_animationDataBuffer);
+            props.SetBuffer(Properties.Main._InstanceProperties, s_instancePropertiesBuffer);
             
             for (var i = 0; i < s_drawCalls.Count; i++)
             {
@@ -1054,8 +1044,8 @@ namespace AnimationInstancing
                 var material = s_materialHandles.GetInstance(drawCall.material);
                 var animationSet = s_animationSetHandles.GetInstance(drawCall.animation);
                 
-                props.SetInt(Properties._DrawArgsOffset, i);
-                props.SetTexture(Properties._Animation, animationSet.Texture);
+                props.SetInt(Properties.Main._DrawArgsOffset, i);
+                props.SetTexture(Properties.Main._Animation, animationSet.Texture);
                 
                 Graphics.DrawMeshInstancedIndirect(
                     mesh,
@@ -1091,6 +1081,7 @@ namespace AnimationInstancing
 
             s_cullingShader = s_resources.Culling;
             s_scanShader = s_resources.Scan;
+            s_sortShader = s_resources.Sort;
             s_compactShader = s_resources.Compact;
 
             if (s_cullingShader == null || s_scanShader == null || s_compactShader == null)
@@ -1100,10 +1091,15 @@ namespace AnimationInstancing
                 return false;
             }
 
-            if (!TryGetKernel(s_cullingShader, Kernels.k_cullingKernel, ref s_cullingKernel) ||
-                !TryGetKernel(s_scanShader, Kernels.k_scanInBucketKernel, ref s_scanInBucketKernel) ||
-                !TryGetKernel(s_scanShader, Kernels.k_scanAcrossBucketsKernel, ref s_scanAcrossBucketsKernel) ||
-                !TryGetKernel(s_compactShader, Kernels.k_compactKernel, ref s_compactKernel))
+            if (!TryGetKernel(s_cullingShader, Kernels.Culling.k_main, out s_cullingKernel) ||
+                !TryGetKernel(s_scanShader, Kernels.Scan.k_inBucket, out s_scanInBucketKernel) ||
+                !TryGetKernel(s_scanShader, Kernels.Scan.k_acrossBuckets, out s_scanAcrossBucketsKernel) ||
+                !TryGetKernel(s_sortShader, Kernels.Sort.k_count, out s_sortCountKernel) ||
+                !TryGetKernel(s_sortShader, Kernels.Sort.k_countReduce, out s_sortCountReduceKernel) ||
+                !TryGetKernel(s_sortShader, Kernels.Sort.k_scan, out s_sortScanKernel) ||
+                !TryGetKernel(s_sortShader, Kernels.Sort.k_scanAdd, out s_sortScanAddKernel) ||
+                !TryGetKernel(s_sortShader, Kernels.Sort.k_scatter, out s_sortScatterKernel) ||
+                !TryGetKernel(s_compactShader, Kernels.Compact.k_main, out s_compactKernel))
             {
                 DisposeResources();
                 return false;
@@ -1151,12 +1147,18 @@ namespace AnimationInstancing
 
             s_cullingShader = null;
             s_scanShader = null;
+            s_sortShader = null;
             s_compactShader = null;
 
-            s_cullingKernel = 0;
-            s_scanInBucketKernel = 0;
-            s_scanAcrossBucketsKernel = 0;
-            s_compactKernel = 0;
+            s_cullingKernel = default;
+            s_scanInBucketKernel = default;
+            s_scanAcrossBucketsKernel = default;
+            s_sortCountKernel = default;
+            s_sortCountReduceKernel = default;
+            s_sortScanKernel = default;
+            s_sortScanAddKernel = default;
+            s_sortScatterKernel = default;
+            s_compactKernel = default;
 
             // dispose command buffers
             Dispose(ref s_cullingCmdBuffer);
@@ -1223,15 +1225,23 @@ namespace AnimationInstancing
             return reasons == null;
         }
 
-        static bool TryGetKernel(ComputeShader shader, string name, ref int kernelID)
+        static bool TryGetKernel(ComputeShader shader, string name, out KernelInfo kernel)
         {
+            kernel = default;
+            
             if (!shader.HasKernel(name))
             {
                 Debug.LogError($"Kernel \"{name}\" not found in compute shader \"{shader.name}\"!");
                 return false;
             }
-
-            kernelID = shader.FindKernel(name);
+            
+            kernel.kernelID = shader.FindKernel(name);
+            
+            shader.GetKernelThreadGroupSizes(kernel.kernelID,  out var x, out var y, out var z);
+            kernel.threadGroupSizeX = (int)x;
+            kernel.threadGroupSizeY = (int)y;
+            kernel.threadGroupSizeZ = (int)z;
+            
             return true;
         }
 
