@@ -651,6 +651,7 @@ namespace AnimationInstancing
 
             // Find all the animation sets that are currently required for rendering, and
             // determine the size required for the animation data buffer
+            var animationSets = new NativeList<AnimationSetHandle>(s_providerStates.Length, Allocator.Temp);
             var animationSetsToBaseIndex = new NativeHashMap<AnimationSetHandle, int>(0, Allocator.Temp);
             var animationCount = 0;
             
@@ -663,6 +664,7 @@ namespace AnimationInstancing
                 {
                     baseIndex = animationCount;
                     animationSetsToBaseIndex.Add(animationSet, baseIndex);
+                    animationSets.Add(animationSet);
 
                     animationCount += s_animationSetToAnimations[animationSet].Length;
                 }
@@ -680,7 +682,6 @@ namespace AnimationInstancing
             );
             
             var animationIndex = 0;
-            var animationSets = animationSetsToBaseIndex.GetKeyArray(Allocator.Temp);
             
             for (var i = 0; i < animationSets.Length; i++)
             {
