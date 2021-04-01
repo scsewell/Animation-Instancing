@@ -47,6 +47,7 @@ namespace AnimationInstancing
             public static readonly int _InstanceData = Shader.PropertyToID("_InstanceData");
             public static readonly int _DrawArgs = Shader.PropertyToID("_DrawArgs");
             public static readonly int _IsVisible = Shader.PropertyToID("_IsVisible");
+            public static readonly int _SortKeys = Shader.PropertyToID("_SortKeys");
         }
         
         public static class Scan
@@ -79,6 +80,7 @@ namespace AnimationInstancing
             public static readonly int _ScanInBucket = Shader.PropertyToID("_ScanInBucket");
             public static readonly int _ScanAcrossBuckets = Shader.PropertyToID("_ScanAcrossBuckets");
             public static readonly int _DrawCallCounts = Shader.PropertyToID("_DrawCallCounts");
+            public static readonly int _SortKeys = Shader.PropertyToID("_SortKeys");
             public static readonly int _InstanceProperties = Shader.PropertyToID("_InstanceProperties");
             public static readonly int _DrawArgs = Shader.PropertyToID("_DrawArgs");
         }
@@ -100,7 +102,8 @@ namespace AnimationInstancing
     {
         public static class Culling
         {
-            public const string k_main = "CSMain";
+            public const string k_clearDrawArgs = "ClearDrawArgs";
+            public const string k_cull = "Cull";
         }
         
         public static class Scan

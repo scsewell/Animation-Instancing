@@ -8,6 +8,7 @@ StructuredBuffer<uint> _IsVisible;
 StructuredBuffer<uint> _ScanInBucket;
 StructuredBuffer<uint> _ScanAcrossBuckets;
 StructuredBuffer<uint> _DrawCallCounts;
+StructuredBuffer<uint> _SortKeys;
 
 RWStructuredBuffer<InstanceProperties> _InstanceProperties;
 RWStructuredBuffer<DrawArgs> _DrawArgs;
@@ -15,10 +16,13 @@ RWStructuredBuffer<DrawArgs> _DrawArgs;
 [numthreads(512, 1, 1)]
 void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
 {
-    // scatter instance data based on the index determined by the scan
-    if (_IsVisible[tID] == 1)
+    // scatter instance data based on the index determined by the sort
+    uint sortKey = tID < _InstanceCount ? _SortKeys[tID] : ANIMATION_INSTANCING_NULL_SORT_KEY;
+
+    if (sortKey != ANIMATION_INSTANCING_NULL_SORT_KEY)
     {
-        InstanceData data = _InstanceData[tID];
+        uint instanceIndex = GetInstanceIndexFromSortingKey(sortKey);
+        InstanceData data = _InstanceData[instanceIndex];
         
         InstanceProperties properties;
         properties.model = TRS(data.position, data.rotation, data.scale);
@@ -26,8 +30,7 @@ void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
         properties.animationIndex = data.animationBaseIndex + data.animationIndex;
         properties.animationTime = data.animationTime;
         
-        uint instanceOutIndex = _ScanInBucket[tID] + (groupID > 0 ? _ScanAcrossBuckets[groupID] : 0);
-        _InstanceProperties[instanceOutIndex] = properties;
+        _InstanceProperties[tID] = properties;
     }
 
     // write the index of the first instance of this type in the draw args buffer

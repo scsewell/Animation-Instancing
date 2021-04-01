@@ -1,7 +1,8 @@
 ﻿#include "HLSLSupport.cginc"
 #include "../InstancingCore.hlsl"
 
-#pragma kernel CSMain
+#pragma kernel ClearDrawArgs
+#pragma kernel Cull
 
 StructuredBuffer<LodData> _LodData;
 StructuredBuffer<AnimationData> _AnimationData;
@@ -9,6 +10,18 @@ StructuredBuffer<InstanceData> _InstanceData;
 
 RWStructuredBuffer<uint> _DrawArgs;
 RWStructuredBuffer<uint> _IsVisible;
+RWStructuredBuffer<uint> _SortKeys;
+
+[numthreads(64, 1, 1)]
+void ClearDrawArgs(int tID : SV_DispatchThreadID)
+{
+    if (tID < _DrawArgsCount)
+    {
+		// Clear the instance count and start values
+        _DrawArgs[(tID * 5) + 1] = 0;
+        _DrawArgs[(tID * 5) + 4] = 0;
+    }
+}
 
 uint FrustumCull(float4 clipPos)
 {
@@ -35,7 +48,7 @@ float GetLodDistance(float screenHeight, float maxExtent)
 }
 
 [numthreads(64, 1, 1)]
-void CSMain(uint tID : SV_DispatchThreadID)
+void Cull(uint tID : SV_DispatchThreadID)
 {
     uint i; 
     
@@ -82,22 +95,30 @@ void CSMain(uint tID : SV_DispatchThreadID)
         isVisible *= distanceToCamera < GetLodDistance(lod.screenHeights[lod.lodCount - 1], maxExtent);
     }
 
-    // mark the instance as visible
-    _IsVisible[tID] = isVisible;
-
-    // increase the drawn instance count for the lod of each sub mesh
-    uint drawArgsIndex = instance.drawArgsBaseIndex;
+    // select the appropriate lod
+    uint selectedLod = 0;
 
     UNITY_UNROLL
     for (i = 0; i < ANIMATION_INSTANCING_MAX_LOD_COUNT; i++)
     {
-        uint useNextLod = distanceToCamera > GetLodDistance(lod.screenHeights[i], maxExtent);
-        drawArgsIndex += instance.drawCallCount * useNextLod;
+        selectedLod += distanceToCamera > GetLodDistance(lod.screenHeights[i], maxExtent);
     }
 
-    for (i = 0; i < instance.drawCallCount; i++)
+    // prepare the sorting data for this instance
+    uint sortingKey = CreateSortingKey(selectedLod, instance.instanceTypeIndex, tID);
+
+    if (tID < (uint)_InstanceCount)
     {
-        InterlockedAdd(_DrawArgs[(drawArgsIndex * 5) + 1], isVisible);
-        drawArgsIndex++;
+        // increase the drawn instance count for the lod of each sub mesh
+        uint drawArgsIndex = instance.drawArgsBaseIndex + (selectedLod * instance.drawCallCount);
+
+        for (i = 0; i < instance.drawCallCount; i++)
+        {
+            InterlockedAdd(_DrawArgs[(drawArgsIndex * 5) + 1], isVisible);
+            drawArgsIndex++;
+        }
+
+        _IsVisible[tID] = isVisible;
+        _SortKeys[tID] = isVisible ? sortingKey : ANIMATION_INSTANCING_NULL_SORT_KEY;
     }
 }

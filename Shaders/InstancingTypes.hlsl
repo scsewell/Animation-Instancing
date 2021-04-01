@@ -31,10 +31,11 @@ struct DrawArgs
 
 struct InstanceData
 {
-    float3 position;
+    float3 position; // compress
     float4 rotation;
     float3 scale;
     uint lodIndex; // pack the indices to save space
+    uint instanceTypeIndex;
     uint drawCallCount;
     uint drawArgsBaseIndex;
     uint animationBaseIndex;  // pack the indices to save space
@@ -59,7 +60,7 @@ struct InstanceData
 
 struct InstanceProperties
 {
-    float4x4 model;
+    float4x4 model; // compress
     float4x4 modelInv;
     uint animationIndex;
     float animationTime;
@@ -70,6 +71,7 @@ float4x4 _ViewProj;
 float3 _CameraPosition;
 float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
 float _LodBias;
+int _InstanceCount;
 int _ScanBucketCount;
 int _DrawArgsCount;
 CBUFFER_END

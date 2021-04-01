@@ -35,6 +35,7 @@ namespace AnimationInstancing
             public NestableNativeSlice<SubMesh> subMeshes;
             public NestableNativeSlice<Instance> instances;
             public int lodIndex;
+            public int instanceTypeIndex;
             public int drawCallCount;
             public int drawArgsBaseIndex;
             public int animationBaseIndex;
@@ -68,11 +69,12 @@ namespace AnimationInstancing
         
         static bool s_resourcesInitialized;
         static InstancingResources s_resources;
-        static ComputeShader s_cullingShader;
+        static ComputeShader s_cullShader;
         static ComputeShader s_scanShader;
         static ComputeShader s_sortShader;
         static ComputeShader s_compactShader;
-        static KernelInfo s_cullingKernel;
+        static KernelInfo s_cullClearDrawArgsKernel;
+        static KernelInfo s_cullKernel;
         static KernelInfo s_scanInBucketKernel;
         static KernelInfo s_scanAcrossBucketsKernel;
         static KernelInfo s_sortCountKernel;
@@ -102,7 +104,8 @@ namespace AnimationInstancing
         static ComputeBuffer s_sortScratchBuffer;
         static ComputeBuffer s_sortReducedScratchBuffer;
         static ComputeBuffer s_instancePropertiesBuffer;
-        static int s_cullingThreadGroupCount;
+        static int s_cullClearDrawArgsThreadGroupCount;
+        static int s_cullThreadGroupCount;
         static int s_scanInBucketThreadGroupCount;
         static int s_sortThreadGroupCount;
         static int s_sortReducedThreadGroupCount;
@@ -112,6 +115,7 @@ namespace AnimationInstancing
         static NativeArray<int> s_providerIndices;
         static NativeArray<InstanceData> s_instanceData;
         static int s_providerIndexCount;
+        static int s_instanceCount;
         
         // TODO: move to native array, make "baked" copy that references instances
         static readonly List<DrawCall> s_drawCalls = new List<DrawCall>();
@@ -505,10 +509,10 @@ namespace AnimationInstancing
 
             s_drawCalls.Clear();
 
-            // Find the ordering of the providers' instances in the instance data buffer. Instances
-            // Using the same mesh must be sequential in the buffer.
-            var meshToIndex = new NativeHashMap<MeshHandle, int>(s_providerStates.Length, Allocator.Temp);
-            var meshIndexToProviderIndices = new NativeMultiHashMap<int, int>(s_providerStates.Length, Allocator.Temp);
+            // Find the ordering of the providers' instances in the instance data buffer. Instances using
+            // the same mesh must be sequential in the buffer.
+            var instanceTypeToIndex = new NativeHashMap<MeshHandle, int>(s_providerStates.Length, Allocator.Temp);
+            var instanceTypeIndexToProviderIndices = new NativeMultiHashMap<int, int>(s_providerStates.Length, Allocator.Temp);
 
             for (var i = 0; i < s_providerStates.Length; i++)
             {
@@ -517,12 +521,12 @@ namespace AnimationInstancing
                 var subMeshes = (NativeSlice<SubMesh>)state.subMeshes;
                 var lodCount = (int)state.renderState.lods.lodCount;
 
-                if (!meshToIndex.TryGetValue(mesh, out var meshIndex))
+                if (!instanceTypeToIndex.TryGetValue(mesh, out var typeIndex))
                 {
-                    meshIndex = meshToIndex.Count();
-                    meshToIndex.Add(mesh, meshIndex);
+                    typeIndex = instanceTypeToIndex.Count();
+                    instanceTypeToIndex.Add(mesh, typeIndex);
                 }
-                meshIndexToProviderIndices.Add(meshIndex, i);
+                instanceTypeIndexToProviderIndices.Add(typeIndex, i);
 
                 for (var j = 0; j < lodCount; j++)
                 {
@@ -553,6 +557,7 @@ namespace AnimationInstancing
                         if (j == 0 && k == 0)
                         {
                             state.drawArgsBaseIndex = drawCallIndex;
+                            state.instanceTypeIndex = typeIndex;
                         }
                     }
                 }
@@ -564,7 +569,7 @@ namespace AnimationInstancing
             drawCallToDrawCallIndex.Dispose();
 
             // flatten the provider index ordering map to an array for fast iteration
-            s_providerIndexCount = meshIndexToProviderIndices.Count();
+            s_providerIndexCount = instanceTypeIndexToProviderIndices.Count();
             
             if (!s_providerIndices.IsCreated || s_providerIndices.Length < s_providerIndexCount)
             {
@@ -579,17 +584,17 @@ namespace AnimationInstancing
             
             var currentProvider = 0;
             
-            for (var i = 0; i < meshToIndex.Count(); i++)
+            for (var i = 0; i < instanceTypeToIndex.Count(); i++)
             {
-                foreach (var providerIndex in meshIndexToProviderIndices.GetValuesForKey(i))
+                foreach (var providerIndex in instanceTypeIndexToProviderIndices.GetValuesForKey(i))
                 {
                     s_providerIndices[currentProvider] = providerIndex;
                     currentProvider++;
                 }
             }
 
-            meshToIndex.Dispose();
-            meshIndexToProviderIndices.Dispose();
+            instanceTypeToIndex.Dispose();
+            instanceTypeIndexToProviderIndices.Dispose();
             
             // Allocate the draw args array. We upload this to the draw args compute buffer each frame to
             // reset the instance counts, so it must be persistent.
@@ -641,6 +646,8 @@ namespace AnimationInstancing
             s_drawCallCountsBuffer.SetData(drawCallCounts, 0, 0, s_drawCalls.Count);
 
             drawCallCounts.Dispose();
+            
+            s_cullClearDrawArgsThreadGroupCount = GetThreadGroupCount(s_drawCalls.Count, s_cullClearDrawArgsKernel.threadGroupSizeX);
             
             Profiler.EndSample();
         }
@@ -724,16 +731,18 @@ namespace AnimationInstancing
             {
                 instanceCount += ((NativeSlice<Instance>)s_providerStates[i].instances).Length;
             }
+
+            s_instanceCount = instanceCount;
             
             // find how many thread groups we should use for the culling shaders
-            s_cullingThreadGroupCount = CeilDivide(instanceCount, s_cullingKernel.threadGroupSizeX);
-            s_scanInBucketThreadGroupCount = CeilDivide(instanceCount, Constants.k_scanBucketSize);
-            s_compactThreadGroupCount = CeilDivide(instanceCount, s_compactKernel.threadGroupSizeX);
+            s_cullThreadGroupCount = GetThreadGroupCount(instanceCount, s_cullKernel.threadGroupSizeX);
+            s_scanInBucketThreadGroupCount = GetThreadGroupCount(instanceCount, Constants.k_scanBucketSize);
+            s_compactThreadGroupCount = GetThreadGroupCount(instanceCount, s_compactKernel.threadGroupSizeX);
 
             // determine the properties of the sorting pass needed for the current instance count
             var blockSize = Constants.k_sortElementsPerThread * s_sortCountKernel.threadGroupSizeX;
-            var numBlocks = (instanceCount + blockSize - 1) / blockSize;
-            var numReducedBlocks = (numBlocks + numBlocks - 1) / numBlocks;
+            var numBlocks = GetThreadGroupCount(instanceCount, blockSize);
+            var numReducedBlocks = GetThreadGroupCount(numBlocks, blockSize);
             
             s_sortThreadGroupCount = 800;
             var numThreadGroupsWithAdditionalBlocks = numBlocks % s_sortThreadGroupCount;
@@ -746,7 +755,7 @@ namespace AnimationInstancing
                 blocksPerThreadGroup = 1;
             }
             
-            var reducedThreadGroupCountPerBin = (blockSize > s_sortThreadGroupCount) ? 1 : ((s_sortThreadGroupCount + blockSize - 1) / blockSize);
+            var reducedThreadGroupCountPerBin = (blockSize > s_sortThreadGroupCount) ? 1 : GetThreadGroupCount(s_sortThreadGroupCount, blockSize);
             s_sortReducedThreadGroupCount = Constants.k_sortBinCount * reducedThreadGroupCountPerBin;
 
             var sortingProperties = new NativeArray<SortingPropertyBuffer>(1, Allocator.Temp, NativeArrayOptions.UninitializedMemory)
@@ -879,6 +888,7 @@ namespace AnimationInstancing
                     scale = instance.transform.scale,
                     
                     lodIndex = (uint)providerState.lodIndex,
+                    instanceTypeIndex = (uint)providerState.instanceTypeIndex,
                     drawCallCount = (uint)providerState.drawCallCount,
                     drawArgsBaseIndex = (uint)providerState.drawArgsBaseIndex,
                     animationBaseIndex = (uint)providerState.animationBaseIndex,
@@ -947,59 +957,78 @@ namespace AnimationInstancing
                 _CameraPosition = cam.transform.position,
                 _LodBias = QualitySettings.lodBias,
                 _LodScale = 1f / (2f * math.tan(math.radians(fov / 2f))),
+                _InstanceCount = s_instanceCount,
                 _ScanBucketCount = s_scanInBucketThreadGroupCount,
-                _DrawArgsCount = s_drawArgs.Length,
+                _DrawArgsCount = s_drawCalls.Count,
             };
 
             s_cullingCmdBuffer.Clear();
             
-            // reset buffers
-            s_cullingCmdBuffer.SetBufferData(s_drawArgsBuffer, s_drawArgs);
-
-            // culling and lod selection
+            // initialize buffers
             s_cullingCmdBuffer.SetBufferData(s_cullingConstantBuffer, s_cullingProperties);
+            
             s_cullingCmdBuffer.SetComputeConstantBufferParam(
-                s_cullingShader,
+                s_cullShader,
                 Properties.Culling._ConstantBuffer,
                 s_cullingConstantBuffer,
                 0,
                 CullingPropertyBuffer.k_size
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
-                s_cullingShader,
-                s_cullingKernel.kernelID,
+                s_cullShader,
+                s_cullClearDrawArgsKernel.kernelID,
+                Properties.Culling._DrawArgs,
+                s_drawArgsBuffer
+            );
+            
+            s_cullingCmdBuffer.DispatchCompute(
+                s_cullShader,
+                s_cullClearDrawArgsKernel.kernelID, 
+                s_cullClearDrawArgsThreadGroupCount, 1, 1
+            );
+
+            // culling and lod selection
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullShader,
+                s_cullKernel.kernelID,
                 Properties.Culling._LodData,
                 s_lodDataBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
-                s_cullingShader,
-                s_cullingKernel.kernelID,
+                s_cullShader,
+                s_cullKernel.kernelID,
                 Properties.Culling._AnimationData,
                 s_animationDataBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
-                s_cullingShader,
-                s_cullingKernel.kernelID,
+                s_cullShader,
+                s_cullKernel.kernelID,
                 Properties.Culling._InstanceData,
                 s_instanceDataBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
-                s_cullingShader,
-                s_cullingKernel.kernelID,
+                s_cullShader,
+                s_cullKernel.kernelID,
                 Properties.Culling._DrawArgs,
                 s_drawArgsBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
-                s_cullingShader,
-                s_cullingKernel.kernelID,
+                s_cullShader,
+                s_cullKernel.kernelID,
                 Properties.Culling._IsVisible,
                 s_isVisibleBuffer
             );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullShader,
+                s_cullKernel.kernelID,
+                Properties.Culling._SortKeys,
+                s_sortKeysInBuffer
+            );
             
             s_cullingCmdBuffer.DispatchCompute(
-                s_cullingShader,
-                s_cullingKernel.kernelID, 
-                s_cullingThreadGroupCount, 1, 1
+                s_cullShader,
+                s_cullKernel.kernelID, 
+                s_cullThreadGroupCount, 1, 1
             );
             
             // scan
@@ -1050,8 +1079,8 @@ namespace AnimationInstancing
                 SortingPropertyBuffer.k_size
             );
 
-            var sortKeysInBuffer = s_sortKeysInBuffer;
-            var sortKeysOutBuffer = s_sortKeysOutBuffer;
+            var sortKeysBuffer = s_sortKeysInBuffer;
+            var sortKeysTempBuffer = s_sortKeysOutBuffer;
             
             for (var shift = 0; shift < 32; shift += Constants.k_sortBitsPerPass)
             {
@@ -1066,7 +1095,7 @@ namespace AnimationInstancing
                     s_sortShader, 
                     s_sortCountKernel.kernelID,
                     Properties.Sort._SrcBuffer,
-                    sortKeysInBuffer
+                    sortKeysBuffer
                 );
                 s_cullingCmdBuffer.SetComputeBufferParam(
                     s_sortShader, 
@@ -1155,7 +1184,7 @@ namespace AnimationInstancing
                     s_sortShader, 
                     s_sortScatterKernel.kernelID,
                     Properties.Sort._SrcBuffer,
-                    sortKeysInBuffer
+                    sortKeysBuffer
                 );
                 s_cullingCmdBuffer.SetComputeBufferParam(
                     s_sortShader, 
@@ -1167,7 +1196,7 @@ namespace AnimationInstancing
                     s_sortShader, 
                     s_sortScatterKernel.kernelID,
                     Properties.Sort._DstBuffer,
-                    sortKeysOutBuffer
+                    sortKeysTempBuffer
                 );
                 
                 s_cullingCmdBuffer.DispatchCompute(
@@ -1177,9 +1206,9 @@ namespace AnimationInstancing
                 );
 
                 // alternate which buffer we are sorting into
-                var lastSortKeysInBuffer = sortKeysInBuffer;
-                sortKeysInBuffer = sortKeysOutBuffer;
-                sortKeysOutBuffer = lastSortKeysInBuffer;
+                var lastSortKeysBuffer = sortKeysBuffer;
+                sortKeysBuffer = sortKeysTempBuffer;
+                sortKeysTempBuffer = lastSortKeysBuffer;
             }
             
             // compact
@@ -1219,6 +1248,12 @@ namespace AnimationInstancing
                 s_compactKernel.kernelID,
                 Properties.Compact._DrawCallCounts,
                 s_drawCallCountsBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel.kernelID,
+                Properties.Compact._SortKeys,
+                sortKeysBuffer
             );
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
@@ -1299,19 +1334,20 @@ namespace AnimationInstancing
                 return false;
             }
 
-            s_cullingShader = s_resources.Culling;
+            s_cullShader = s_resources.Culling;
             s_scanShader = s_resources.Scan;
             s_sortShader = s_resources.Sort;
             s_compactShader = s_resources.Compact;
 
-            if (s_cullingShader == null || s_scanShader == null || s_compactShader == null)
+            if (s_cullShader == null || s_scanShader == null || s_compactShader == null)
             {
                 Debug.LogError("Required compute shaders have not been assigned to the instancing resources asset!");
                 DisposeResources();
                 return false;
             }
 
-            if (!TryGetKernel(s_cullingShader, Kernels.Culling.k_main, out s_cullingKernel) ||
+            if (!TryGetKernel(s_cullShader, Kernels.Culling.k_clearDrawArgs, out s_cullClearDrawArgsKernel) ||
+                !TryGetKernel(s_cullShader, Kernels.Culling.k_cull, out s_cullKernel) ||
                 !TryGetKernel(s_scanShader, Kernels.Scan.k_inBucket, out s_scanInBucketKernel) ||
                 !TryGetKernel(s_scanShader, Kernels.Scan.k_acrossBuckets, out s_scanAcrossBucketsKernel) ||
                 !TryGetKernel(s_sortShader, Kernels.Sort.k_count, out s_sortCountKernel) ||
@@ -1374,12 +1410,13 @@ namespace AnimationInstancing
                 s_resources = null;
             }
 
-            s_cullingShader = null;
+            s_cullShader = null;
             s_scanShader = null;
             s_sortShader = null;
             s_compactShader = null;
 
-            s_cullingKernel = default;
+            s_cullClearDrawArgsKernel = default;
+            s_cullKernel = default;
             s_scanInBucketKernel = default;
             s_scanAcrossBucketsKernel = default;
             s_sortCountKernel = default;
@@ -1414,8 +1451,11 @@ namespace AnimationInstancing
             Dispose(ref s_sortReducedScratchBuffer);
             Dispose(ref s_instancePropertiesBuffer);
             
-            s_cullingThreadGroupCount = 0;
+            s_cullClearDrawArgsThreadGroupCount = 0;
+            s_cullThreadGroupCount = 0;
             s_scanInBucketThreadGroupCount = 0;
+            s_sortThreadGroupCount = 0;
+            s_sortReducedThreadGroupCount = 0;
             s_compactThreadGroupCount = 0;
             
             // dispose main memory buffers
@@ -1423,6 +1463,7 @@ namespace AnimationInstancing
             Dispose(ref s_providerIndices);
             Dispose(ref s_instanceData);
             s_providerIndexCount = 0;
+            s_instanceCount = 0;
             
             // clear managed state
             s_drawCalls.Clear();
@@ -1480,9 +1521,9 @@ namespace AnimationInstancing
             return true;
         }
 
-        static int CeilDivide(int x, int y)
+        static int GetThreadGroupCount(int threads, int threadsPerGroup)
         {
-            return ((x - 1) / y) + 1;
+            return ((threads - 1) / threadsPerGroup) + 1;
         }
 
         static void Dispose(ref CommandBuffer buffer)

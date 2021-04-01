@@ -79,6 +79,7 @@ namespace AnimationInstancing
         public quaternion rotation;
         public float3 scale;
         public uint lodIndex;
+        public uint instanceTypeIndex;
         public uint drawCallCount;
         public uint drawArgsBaseIndex;
         public uint animationBaseIndex;
@@ -106,6 +107,7 @@ namespace AnimationInstancing
         public float3 _CameraPosition;
         public float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
         public float _LodBias;
+        public int _InstanceCount;
         public int _ScanBucketCount;
         public int _DrawArgsCount;
     }
