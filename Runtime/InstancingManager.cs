@@ -70,13 +70,10 @@ namespace AnimationInstancing
         static bool s_resourcesInitialized;
         static InstancingResources s_resources;
         static ComputeShader s_cullShader;
-        static ComputeShader s_scanShader;
         static ComputeShader s_sortShader;
         static ComputeShader s_compactShader;
         static KernelInfo s_cullClearDrawArgsKernel;
         static KernelInfo s_cullKernel;
-        static KernelInfo s_scanInBucketKernel;
-        static KernelInfo s_scanAcrossBucketsKernel;
         static KernelInfo s_sortCountKernel;
         static KernelInfo s_sortCountReduceKernel;
         static KernelInfo s_sortScanKernel;
@@ -96,9 +93,6 @@ namespace AnimationInstancing
         static ComputeBuffer s_drawArgsBuffer;
         static ComputeBuffer s_drawCallCountsBuffer;
         static ComputeBuffer s_instanceDataBuffer;
-        static ComputeBuffer s_isVisibleBuffer;
-        static ComputeBuffer s_isVisibleScanInBucketBuffer;
-        static ComputeBuffer s_isVisibleScanAcrossBucketsBuffer;
         static ComputeBuffer s_sortKeysInBuffer;
         static ComputeBuffer s_sortKeysOutBuffer;
         static ComputeBuffer s_sortScratchBuffer;
@@ -106,7 +100,6 @@ namespace AnimationInstancing
         static ComputeBuffer s_instancePropertiesBuffer;
         static int s_cullClearDrawArgsThreadGroupCount;
         static int s_cullThreadGroupCount;
-        static int s_scanInBucketThreadGroupCount;
         static int s_sortThreadGroupCount;
         static int s_sortReducedThreadGroupCount;
         static int s_compactThreadGroupCount;
@@ -736,7 +729,6 @@ namespace AnimationInstancing
             
             // find how many thread groups we should use for the culling shaders
             s_cullThreadGroupCount = GetThreadGroupCount(instanceCount, s_cullKernel.threadGroupSizeX);
-            s_scanInBucketThreadGroupCount = GetThreadGroupCount(instanceCount, Constants.k_scanBucketSize);
             s_compactThreadGroupCount = GetThreadGroupCount(instanceCount, s_compactKernel.threadGroupSizeX);
 
             // determine the properties of the sorting pass needed for the current instance count
@@ -792,8 +784,6 @@ namespace AnimationInstancing
             if (s_instanceDataBuffer == null || s_instanceDataBuffer.count < instanceCount)
             {
                 Dispose(ref s_instanceDataBuffer);
-                Dispose(ref s_isVisibleBuffer);
-                Dispose(ref s_isVisibleScanInBucketBuffer);
                 Dispose(ref s_sortKeysInBuffer);
                 Dispose(ref s_sortKeysOutBuffer);
                 Dispose(ref s_instancePropertiesBuffer);
@@ -803,14 +793,6 @@ namespace AnimationInstancing
                 s_instanceDataBuffer = new ComputeBuffer(count, InstanceData.k_size)
                 {
                     name = $"{nameof(InstancingManager)}_{nameof(InstanceData)}",
-                };
-                s_isVisibleBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_IsVisible",
-                };
-                s_isVisibleScanInBucketBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_IsVisibleScanInBucket",
                 };
                 s_sortKeysInBuffer = new ComputeBuffer(count, sizeof(uint))
                 {
@@ -823,18 +805,6 @@ namespace AnimationInstancing
                 s_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
                 {
                     name = $"{nameof(InstancingManager)}_{nameof(InstanceProperties)}",
-                };
-            }
-
-            if (s_isVisibleScanAcrossBucketsBuffer == null || s_isVisibleScanAcrossBucketsBuffer.count < s_scanInBucketThreadGroupCount)
-            {
-                Dispose(ref s_isVisibleScanAcrossBucketsBuffer);
-                
-                var count = Mathf.NextPowerOfTwo(s_scanInBucketThreadGroupCount);
-
-                s_isVisibleScanAcrossBucketsBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_IsVisibleScanAcrossBuckets",
                 };
             }
 
@@ -958,7 +928,6 @@ namespace AnimationInstancing
                 _LodBias = QualitySettings.lodBias,
                 _LodScale = 1f / (2f * math.tan(math.radians(fov / 2f))),
                 _InstanceCount = s_instanceCount,
-                _ScanBucketCount = s_scanInBucketThreadGroupCount,
                 _DrawArgsCount = s_drawCalls.Count,
             };
 
@@ -1021,12 +990,6 @@ namespace AnimationInstancing
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_cullShader,
                 s_cullKernel.kernelID,
-                Properties.Culling._IsVisible,
-                s_isVisibleBuffer
-            );
-            s_cullingCmdBuffer.SetComputeBufferParam(
-                s_cullShader,
-                s_cullKernel.kernelID,
                 Properties.Culling._SortKeys,
                 s_sortKeysInBuffer
             );
@@ -1035,45 +998,6 @@ namespace AnimationInstancing
                 s_cullShader,
                 s_cullKernel.kernelID, 
                 s_cullThreadGroupCount, 1, 1
-            );
-            
-            // scan
-            s_cullingCmdBuffer.SetComputeBufferParam(
-                s_scanShader,
-                s_scanInBucketKernel.kernelID,
-                Properties.Scan._ScanIn,
-                s_isVisibleBuffer
-            );
-            s_cullingCmdBuffer.SetComputeBufferParam(
-                s_scanShader, 
-                s_scanInBucketKernel.kernelID,
-                Properties.Scan._ScanIntermediate,
-                s_isVisibleScanAcrossBucketsBuffer
-            );
-            s_cullingCmdBuffer.SetComputeBufferParam(
-                s_scanShader,
-                s_scanInBucketKernel.kernelID,
-                Properties.Scan._ScanOut,
-                s_isVisibleScanInBucketBuffer
-            );
-            
-            s_cullingCmdBuffer.DispatchCompute(
-                s_scanShader,
-                s_scanInBucketKernel.kernelID, 
-                s_scanInBucketThreadGroupCount, 1, 1
-            );
-            
-            s_cullingCmdBuffer.SetComputeBufferParam(
-                s_scanShader, 
-                s_scanAcrossBucketsKernel.kernelID,
-                Properties.Scan._ScanOut,
-                s_isVisibleScanAcrossBucketsBuffer
-            );
-
-            s_cullingCmdBuffer.DispatchCompute(
-                s_scanShader,
-                s_scanAcrossBucketsKernel.kernelID, 
-                1, 1, 1
             );
             
             // sort
@@ -1234,24 +1158,6 @@ namespace AnimationInstancing
             s_cullingCmdBuffer.SetComputeBufferParam(
                 s_compactShader,
                 s_compactKernel.kernelID,
-                Properties.Compact._IsVisible,
-                s_isVisibleBuffer
-            );
-            s_cullingCmdBuffer.SetComputeBufferParam(
-                s_compactShader,
-                s_compactKernel.kernelID,
-                Properties.Compact._ScanInBucket,
-                s_isVisibleScanInBucketBuffer
-            );
-            s_cullingCmdBuffer.SetComputeBufferParam(
-                s_compactShader,
-                s_compactKernel.kernelID,
-                Properties.Compact._ScanAcrossBuckets,
-                s_isVisibleScanAcrossBucketsBuffer
-            );
-            s_cullingCmdBuffer.SetComputeBufferParam(
-                s_compactShader,
-                s_compactKernel.kernelID,
                 Properties.Compact._DrawCallCounts,
                 s_drawCallCountsBuffer
             );
@@ -1341,11 +1247,10 @@ namespace AnimationInstancing
             }
 
             s_cullShader = s_resources.Culling;
-            s_scanShader = s_resources.Scan;
             s_sortShader = s_resources.Sort;
             s_compactShader = s_resources.Compact;
 
-            if (s_cullShader == null || s_scanShader == null || s_compactShader == null)
+            if (s_cullShader == null || s_sortShader == null || s_compactShader == null)
             {
                 Debug.LogError("Required compute shaders have not been assigned to the instancing resources asset!");
                 DisposeResources();
@@ -1354,8 +1259,6 @@ namespace AnimationInstancing
 
             if (!TryGetKernel(s_cullShader, Kernels.Culling.k_clearDrawArgs, out s_cullClearDrawArgsKernel) ||
                 !TryGetKernel(s_cullShader, Kernels.Culling.k_cull, out s_cullKernel) ||
-                !TryGetKernel(s_scanShader, Kernels.Scan.k_inBucket, out s_scanInBucketKernel) ||
-                !TryGetKernel(s_scanShader, Kernels.Scan.k_acrossBuckets, out s_scanAcrossBucketsKernel) ||
                 !TryGetKernel(s_sortShader, Kernels.Sort.k_count, out s_sortCountKernel) ||
                 !TryGetKernel(s_sortShader, Kernels.Sort.k_countReduce, out s_sortCountReduceKernel) ||
                 !TryGetKernel(s_sortShader, Kernels.Sort.k_scan, out s_sortScanKernel) ||
@@ -1417,14 +1320,11 @@ namespace AnimationInstancing
             }
 
             s_cullShader = null;
-            s_scanShader = null;
             s_sortShader = null;
             s_compactShader = null;
 
             s_cullClearDrawArgsKernel = default;
             s_cullKernel = default;
-            s_scanInBucketKernel = default;
-            s_scanAcrossBucketsKernel = default;
             s_sortCountKernel = default;
             s_sortCountReduceKernel = default;
             s_sortScanKernel = default;
@@ -1448,9 +1348,6 @@ namespace AnimationInstancing
             Dispose(ref s_drawArgsBuffer);
             Dispose(ref s_drawCallCountsBuffer);
             Dispose(ref s_instanceDataBuffer);
-            Dispose(ref s_isVisibleBuffer);
-            Dispose(ref s_isVisibleScanInBucketBuffer);
-            Dispose(ref s_isVisibleScanAcrossBucketsBuffer);
             Dispose(ref s_sortKeysInBuffer);
             Dispose(ref s_sortKeysOutBuffer);
             Dispose(ref s_sortScratchBuffer);
@@ -1459,7 +1356,6 @@ namespace AnimationInstancing
             
             s_cullClearDrawArgsThreadGroupCount = 0;
             s_cullThreadGroupCount = 0;
-            s_scanInBucketThreadGroupCount = 0;
             s_sortThreadGroupCount = 0;
             s_sortReducedThreadGroupCount = 0;
             s_compactThreadGroupCount = 0;

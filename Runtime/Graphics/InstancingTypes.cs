@@ -108,7 +108,6 @@ namespace AnimationInstancing
         public float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
         public float _LodBias;
         public int _InstanceCount;
-        public int _ScanBucketCount;
         public int _DrawArgsCount;
     }
     

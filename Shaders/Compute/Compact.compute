@@ -4,9 +4,6 @@
 #pragma kernel CSMain
 
 StructuredBuffer<InstanceData> _InstanceData;
-StructuredBuffer<uint> _IsVisible;
-StructuredBuffer<uint> _ScanInBucket;
-StructuredBuffer<uint> _ScanAcrossBuckets;
 StructuredBuffer<uint> _DrawCallCounts;
 StructuredBuffer<uint> _SortKeys;
 

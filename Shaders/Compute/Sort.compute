@@ -46,9 +46,9 @@ RWStructuredBuffer<uint> _SrcBuffer;    // The unsorted keys or scan data
 RWStructuredBuffer<uint> _DstBuffer;    // The sorted keys or prefixed data
 RWStructuredBuffer<uint> _SumTable;     // The sum table we will write sums to
 RWStructuredBuffer<uint> _ReduceTable;  // The reduced sum table we will write sums to
-RWStructuredBuffer<uint> _ScanSrc;      // Source for Scan Data
-RWStructuredBuffer<uint> _ScanDst;      // Destination for Scan Data
-RWStructuredBuffer<uint> _ScanScratch;  // Scratch data for Scan
+RWStructuredBuffer<uint> _ScanSrc;      // Source for scan data
+RWStructuredBuffer<uint> _ScanDst;      // Destination for scan data
+RWStructuredBuffer<uint> _ScanScratch;  // Scratch data for scan
 
 
 groupshared uint gs_Histogram[THREAD_GROUP_SIZE * BIN_COUNT];
@@ -432,8 +432,9 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
             {
                 gs_BinOffsetCache[localID] += gs_LocalHistogram[localID];
             }
-
-            dataIndex += THREAD_GROUP_SIZE; // Increase the data offset by thread group size
+            
+            // Increase the data offset by thread group size
+            dataIndex += THREAD_GROUP_SIZE;
         }
     }
 }

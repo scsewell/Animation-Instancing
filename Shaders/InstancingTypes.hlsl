@@ -72,7 +72,6 @@ float3 _CameraPosition;
 float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
 float _LodBias;
 int _InstanceCount;
-int _ScanBucketCount;
 int _DrawArgsCount;
 CBUFFER_END
 

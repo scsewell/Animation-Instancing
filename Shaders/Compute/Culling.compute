@@ -9,7 +9,6 @@ StructuredBuffer<AnimationData> _AnimationData;
 StructuredBuffer<InstanceData> _InstanceData;
 
 RWStructuredBuffer<uint> _DrawArgs;
-RWStructuredBuffer<uint> _IsVisible;
 RWStructuredBuffer<uint> _SortKeys;
 
 [numthreads(64, 1, 1)]
@@ -118,7 +117,6 @@ void Cull(uint tID : SV_DispatchThreadID)
             drawArgsIndex++;
         }
 
-        _IsVisible[tID] = isVisible;
         _SortKeys[tID] = isVisible ? sortingKey : ANIMATION_INSTANCING_NULL_SORT_KEY;
     }
 }

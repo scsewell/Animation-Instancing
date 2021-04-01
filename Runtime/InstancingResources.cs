@@ -11,14 +11,11 @@ namespace AnimationInstancing
         [SerializeField]
         ComputeShader m_culling;
         [SerializeField]
-        ComputeShader m_scan;
-        [SerializeField]
         ComputeShader m_sort;
         [SerializeField]
         ComputeShader m_compact;
 
         public ComputeShader Culling => m_culling;
-        public ComputeShader Scan => m_scan;
         public ComputeShader Sort => m_sort;
         public ComputeShader Compact => m_compact;
     }
