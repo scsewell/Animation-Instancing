@@ -771,7 +771,7 @@ namespace AnimationInstancing
                 },
             };
             
-            s_sortingConstantBuffer.SetData(sortingProperties);
+            s_sortingConstantBuffer.SetData(sortingProperties, 0, 0, sortingProperties.Length);
             sortingProperties.Dispose();
 
             var sortScratchBufferSize = Constants.k_sortBinCount * numBlocks;
@@ -965,7 +965,13 @@ namespace AnimationInstancing
             s_cullingCmdBuffer.Clear();
             
             // initialize buffers
-            s_cullingCmdBuffer.SetBufferData(s_cullingConstantBuffer, s_cullingProperties);
+            s_cullingCmdBuffer.SetBufferData(
+                s_cullingConstantBuffer,
+                s_cullingProperties,
+                0,
+                0,
+                s_cullingProperties.Length
+            );
             
             s_cullingCmdBuffer.SetComputeConstantBufferParam(
                 s_cullShader,

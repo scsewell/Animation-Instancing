@@ -14,7 +14,7 @@ RWStructuredBuffer<InstanceProperties> _InstanceProperties;
 RWStructuredBuffer<DrawArgs> _DrawArgs;
 
 [numthreads(512, 1, 1)]
-void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
+void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
 {
     // scatter instance data based on the index determined by the sort
     uint sortKey = tID < _InstanceCount ? _SortKeys[tID] : ANIMATION_INSTANCING_NULL_SORT_KEY;
@@ -37,11 +37,10 @@ void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
     if ((tID * groupID) == 0)
     {
         int instanceStart = 0;
-        _DrawArgs[0].instanceStart = instanceStart;
         
-        for (int i = 1; i < _DrawArgsCount;)
+        for (int i = 0; i < _DrawArgsCount;)
         {
-            instanceStart += _DrawArgs[i - 1].instanceCount;
+            instanceStart += i > 0 ? _DrawArgs[i - 1].instanceCount : 0;
             uint drawCallCount = _DrawCallCounts[i];
             
             for (uint j = 0; j < drawCallCount; j++)
