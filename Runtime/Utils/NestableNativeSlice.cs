@@ -9,9 +9,11 @@ namespace AnimationInstancing
         unsafe byte* m_Buffer;
         int m_Stride;
         int m_Length;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
         int m_MinIndex;
         int m_MaxIndex;
         AtomicSafetyHandle m_Safety;
+#endif
 
         public static implicit operator NativeSlice<T>(NestableNativeSlice<T> slice)
         {
