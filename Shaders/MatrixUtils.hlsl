@@ -62,4 +62,14 @@ float4x4 TRS(float3 t, float4 r, float3 s)
     return mul(ts, QuaternionToMatrix(r));
 }
 
+float4x4 MatrixDecompress(float3x4 m)
+{
+    return float4x4(
+        m._11_12_13_14,
+        m._21_22_23_24,
+        m._31_32_33_34,
+        float4(0.0, 0.0, 0.0, 1.0)
+    );
+}
+
 #endif // ANIMATION_INSTANCING_MATRIX_UTILS

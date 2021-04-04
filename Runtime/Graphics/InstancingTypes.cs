@@ -92,8 +92,8 @@ namespace AnimationInstancing
     {
         public static readonly int k_size = Marshal.SizeOf<InstanceProperties>();
 
-        public float4x4 model;
-        public float4x4 modelInv;
+        public float3x4 model;
+        public float3x4 modelInv;
         public uint animationIndex;
         public float animationTime;
     }

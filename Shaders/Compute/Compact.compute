@@ -22,8 +22,9 @@ void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
         InstanceData data = _InstanceData[instanceIndex];
         
         InstanceProperties properties;
-        properties.model = TRS(data.position, data.rotation, data.scale);
-        properties.modelInv =  InvertMatrix(properties.model);
+        float4x4 model = TRS(data.position, data.rotation, data.scale);
+        properties.model = model;
+        properties.modelInv =  InvertMatrix(model);
         properties.animationIndex = data.animationBaseIndex + data.animationIndex;
         properties.animationTime = data.animationTime;
         

@@ -31,8 +31,8 @@ void Setup()
     InstanceProperties props = _InstanceProperties[instanceIndex];
 
     // set the mode matrix for the current instance
-    UNITY_MATRIX_M = props.model;
-    UNITY_MATRIX_I_M = props.modelInv;
+    UNITY_MATRIX_M = MatrixDecompress(props.model);
+    UNITY_MATRIX_I_M = MatrixDecompress(props.modelInv);
 
     // get the properties of the animation used by this instance
     _AnimationInfo = _AnimationData[props.animationIndex];

@@ -60,8 +60,8 @@ struct InstanceData
 
 struct InstanceProperties
 {
-    float4x4 model; // compress
-    float4x4 modelInv;
+    float3x4 model;
+    float3x4 modelInv;
     uint animationIndex;
     float animationTime;
 };
