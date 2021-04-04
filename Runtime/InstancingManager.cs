@@ -854,9 +854,7 @@ namespace AnimationInstancing
 
                 instanceData[instanceStart + i] = new InstanceData
                 {
-                    position = instance.transform.position,
-                    rotation = instance.transform.rotation,
-                    scale = instance.transform.scale,
+                    transform = instance.transform,
                     
                     lodIndex = (uint)providerState.lodIndex,
                     instanceTypeIndex = (uint)providerState.instanceTypeIndex,

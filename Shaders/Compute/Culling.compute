@@ -56,7 +56,8 @@ void Cull(uint tID : SV_DispatchThreadID)
     AnimationData animation = _AnimationData[instance.animationBaseIndex + instance.animationIndex];
 
     // calculate the local to world matrix and mvp for the instance
-    float4x4 modelMat = TRS(instance.position, instance.rotation, instance.scale);
+    Transform transform = DecompressTransform(instance.transform);
+    float4x4 modelMat = TransformToMatrix(transform);
     float4x4 mvp = mul(_ViewProj, modelMat);
 
     // determine if the instance is visible in the frustum
@@ -84,7 +85,7 @@ void Cull(uint tID : SV_DispatchThreadID)
     // if the camera is in the instance bounds we cannot frustum cull
     float3 worldCenter = mul(modelMat, float4(animation.bounds.center, 1.0)).xyz;
     float distanceToCamera = distance(_CameraPosition, worldCenter) / _LodBias;
-    float3 scaledExtents = animation.bounds.extents * instance.scale;
+    float3 scaledExtents = animation.bounds.extents * transform.scale;
     float maxExtent = max(max(scaledExtents.x, scaledExtents.y), scaledExtents.z);
 
     uint isVisible = 1;

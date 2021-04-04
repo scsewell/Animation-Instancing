@@ -9,6 +9,85 @@ namespace AnimationInstancing
 {
     // This file is kept in sync with InstancingTypes.hlsl
 
+    /// <summary>
+    /// A struct that stores a quaternion compressed using the smallest three method.
+    /// </summary>
+    /// <remarks>
+    /// Each component in the rotation has about 9 bits of precision.
+    /// </remarks>
+    /// <seealso href="http://gafferongames.com/networked-physics/snapshot-compression/"/>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CompressedQuaternion
+    {
+        uint value;
+        
+        public CompressedQuaternion(quaternion rotation)
+        {
+            var maxValue = float.MinValue;
+            var maxIndex = 0;
+            var sign = 1f;
+
+            for (var i = 0; i < 4; i++)
+            {
+                var val = rotation.value[i];
+                var abs = math.abs(val);
+
+                if (maxValue < abs)
+                {
+                    maxValue = abs;
+                    maxIndex = i;
+                    sign = math.sign(val);
+                }
+            }
+
+            var values = (uint4)math.round(((sign * rotation.value) + 1f) * 512) & 0x3ff;
+
+            uint3 compressedValues;
+            switch (maxIndex)
+            {
+                case 0:
+                    compressedValues = values.yzw;
+                    break;
+                case 1:
+                    compressedValues = values.xzw;
+                    break;
+                case 2:
+                    compressedValues = values.xyw;
+                    break;
+                default:
+                    compressedValues = values.xyz;
+                    break;
+            }
+
+            value = (compressedValues.z << 22) |
+                    (compressedValues.y << 12) |
+                    (compressedValues.x <<  2) |
+                    ((uint)maxIndex & 0x3);
+        }
+    }
+    
+    /// <summary>
+    /// A struct that stores a compressed transform.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CompressedTransform
+    {
+        /// <summary>
+        /// The world space position.
+        /// </summary>
+        public float3 position;
+        
+        /// <summary>
+        /// The world space rotation.
+        /// </summary>
+        public CompressedQuaternion rotation;
+        
+        /// <summary>
+        /// The world space scale.
+        /// </summary>
+        public float scale;
+    }
+
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
     struct AnimationData
@@ -75,9 +154,7 @@ namespace AnimationInstancing
     {
         public static readonly int k_size = Marshal.SizeOf<InstanceData>();
 
-        public float3 position;
-        public quaternion rotation;
-        public float3 scale;
+        public CompressedTransform transform;
         public uint lodIndex;
         public uint instanceTypeIndex;
         public uint drawCallCount;

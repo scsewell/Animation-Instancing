@@ -50,16 +50,16 @@ float4x4 QuaternionToMatrix(float4 q)
     return r;
 }
 
-float4x4 TRS(float3 t, float4 r, float3 s)
+float4x4 TransformToMatrix(Transform t)
 {
     float4x4 ts =
     {
-        s.x, 0.0, 0.0, t.x,
-        0.0, s.y, 0.0, t.y,
-        0.0, 0.0, s.z, t.z,
-        0.0, 0.0, 0.0, 1.0
+        t.scale.x, 0.0,       0.0,       t.position.x,
+        0.0,       t.scale.y, 0.0,       t.position.y,
+        0.0,       0.0,       t.scale.z, t.position.z,
+        0.0,       0.0,       0.0,       1.0
     };
-    return mul(ts, QuaternionToMatrix(r));
+    return mul(ts, QuaternionToMatrix(t.rotation));
 }
 
 float4x4 MatrixDecompress(float3x4 m)

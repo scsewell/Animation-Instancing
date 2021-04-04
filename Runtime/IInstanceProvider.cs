@@ -58,27 +58,6 @@ namespace AnimationInstancing
     }
 
     /// <summary>
-    /// A struct that stores the transform of a single instance.
-    /// </summary>
-    public struct InstanceTransform
-    {
-        /// <summary>
-        /// The world space position of the instance.
-        /// </summary>
-        public float3 position;
-        
-        /// <summary>
-        /// The world space rotation of the instance. 
-        /// </summary>
-        public quaternion rotation;
-        
-        /// <summary>
-        /// The world space scale of the instance. 
-        /// </summary>
-        public float3 scale;
-    }
-    
-    /// <summary>
     /// A struct that stores the data of a single instance.
     /// </summary>
     public struct Instance
@@ -86,7 +65,7 @@ namespace AnimationInstancing
         /// <summary>
         /// The instance transform.
         /// </summary>
-        public InstanceTransform transform;
+        public CompressedTransform transform;
 
         public int animationIndex;
         public float animationTime;

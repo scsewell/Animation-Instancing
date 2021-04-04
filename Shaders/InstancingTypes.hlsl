@@ -1,6 +1,20 @@
 ﻿#ifndef ANIMATION_INSTANCING_TYPES_INCLUDED
 #define ANIMATION_INSTANCING_TYPES_INCLUDED
 
+struct CompressedTransform
+{
+	float3 position;
+	uint rotation;
+	float scale;
+};
+
+struct Transform
+{
+    float3 position;
+    float4 rotation;
+    float3 scale;
+};
+
 struct Bounds
 {
     float3 center;
@@ -31,9 +45,7 @@ struct DrawArgs
 
 struct InstanceData
 {
-    float3 position; // compress
-    float4 rotation;
-    float3 scale;
+    CompressedTransform transform;
     uint lodIndex; // pack the indices to save space
     uint instanceTypeIndex;
     uint drawCallCount;

@@ -21,8 +21,9 @@ void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
         uint instanceIndex = GetInstanceIndexFromSortingKey(sortKey);
         InstanceData data = _InstanceData[instanceIndex];
         
+        float4x4 model = TransformToMatrix(DecompressTransform(data.transform));
+
         InstanceProperties properties;
-        float4x4 model = TRS(data.position, data.rotation, data.scale);
         properties.model = model;
         properties.modelInv =  InvertMatrix(model);
         properties.animationIndex = data.animationBaseIndex + data.animationIndex;

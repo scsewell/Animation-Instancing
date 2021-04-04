@@ -136,15 +136,16 @@ namespace AnimationInstancing
             {
                 var edgeLength = Mathf.CeilToInt(Mathf.Sqrt(instances.Length));
                 var pos = new float3(-Mathf.Repeat(i, edgeLength), 0, -Mathf.Floor(i / edgeLength));
+                var rot = Quaternion.Euler(0, i + time * 10, 0);
                 var animationIndex = i % animationLengths.Length;
                 
                 instances[i] = new Instance
                 {
-                    transform = new InstanceTransform
+                    transform = new CompressedTransform
                     {
                         position = basePosition + pos,
-                        rotation = quaternion.identity,
-                        scale = Vector3.one,
+                        rotation = new CompressedQuaternion(rot),
+                        scale = 1f,
                     },
                     animationIndex = animationIndex,
                     animationTime = Mathf.Repeat((time + math.length(pos)) / animationLengths[animationIndex], 1f),
