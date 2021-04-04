@@ -33,6 +33,7 @@ void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
     // write the index of the first instance of this type in the draw args buffer
     if ((tID * groupID) == 0)
     {
+		// use scan algorithm instead. Also consider deferring modifying draw args until here
         int instanceStart = 0;
         
         for (int i = 0; i < _DrawArgsCount;)

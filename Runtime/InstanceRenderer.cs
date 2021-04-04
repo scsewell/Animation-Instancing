@@ -24,6 +24,7 @@ namespace AnimationInstancing
         NativeArray<SubMesh> m_subMeshes;
         NativeArray<Instance> m_instances;
         NativeArray<float> m_animationLengths;
+        JobHandle m_configureInstancesJob;
         
         /// <inheritdoc />
         public DirtyFlags DirtyFlags { get; private set; } = DirtyFlags.All;
@@ -114,9 +115,8 @@ namespace AnimationInstancing
                 instances = m_instances,
             };
             
-            var handle = configureInstancesJob.Schedule(m_instances.Length, 64);
-            handle.Complete();
-
+            m_configureInstancesJob = configureInstancesJob.Schedule(m_instances.Length, 64);
+            
             DirtyFlags |= DirtyFlags.PerInstanceData;
         }
         
@@ -155,6 +155,9 @@ namespace AnimationInstancing
         /// <inheritdoc />
         public void GetState(out RenderState state, out NativeSlice<SubMesh> subMeshes, out NativeSlice<Instance> instances)
         {
+            m_configureInstancesJob.Complete();
+            m_configureInstancesJob = default;
+
             state = new RenderState
             {
                 mesh = m_meshHandle,

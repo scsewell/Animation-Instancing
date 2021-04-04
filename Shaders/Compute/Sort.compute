@@ -71,10 +71,11 @@ void Count(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
     // Figure out this thread group's index into the block data (taking into account thread groups that need to do extra reads)
     uint threadgroupBlockStart = (blockSize * _NumBlocksPerThreadGroup * groupID);
     uint numBlocksToProcess = _NumBlocksPerThreadGroup;
+    uint numThreadGroupsWithoutAdditionalBlocks = _NumThreadGroups - _NumThreadGroupsWithAdditionalBlocks;
 
-    if (groupID >= _NumThreadGroups - _NumThreadGroupsWithAdditionalBlocks)
+    if (groupID >= numThreadGroupsWithoutAdditionalBlocks)
     {
-        threadgroupBlockStart += (groupID - (_NumThreadGroups - _NumThreadGroupsWithAdditionalBlocks)) * blockSize;
+        threadgroupBlockStart += (groupID - numThreadGroupsWithoutAdditionalBlocks) * blockSize;
         numBlocksToProcess++;
     }
 
@@ -209,7 +210,7 @@ void CountReduce(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
 // then scattered loads from LDS
 groupshared int gs_LDS[ELEMENTS_PER_THREAD][THREAD_GROUP_SIZE];
 
-void ScanPrefix(uint localID, uint groupID, uint binOffset, uint baseIndex, bool AddPartialSums)
+void ScanPrefix(uint localID, uint groupID, uint numValuesToScan, uint binOffset, uint baseIndex, bool addPartialSums)
 {
     // Perform coalesced loads into LDS
     for (uint i = 0; i < ELEMENTS_PER_THREAD; i++)
@@ -218,7 +219,8 @@ void ScanPrefix(uint localID, uint groupID, uint binOffset, uint baseIndex, bool
 
         uint col = ((i * THREAD_GROUP_SIZE) + localID) / ELEMENTS_PER_THREAD;
         uint row = ((i * THREAD_GROUP_SIZE) + localID) % ELEMENTS_PER_THREAD;
-        gs_LDS[row][col] = (dataIndex < _NumScanValues) ? _ScanSrc[binOffset + dataIndex] : 0;
+        
+        gs_LDS[row][col] = (dataIndex < numValuesToScan) ? _ScanSrc[binOffset + dataIndex] : 0;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -238,7 +240,7 @@ void ScanPrefix(uint localID, uint groupID, uint binOffset, uint baseIndex, bool
 
     // Add reduced partial sums if requested
     uint partialSum = 0;
-    if (AddPartialSums)
+    if (addPartialSums)
     {
         // Partial sum additions are a little special as they are tailored to the optimal number of 
         // thread groups we ran in the beginning, so need to take that into account
@@ -261,7 +263,7 @@ void ScanPrefix(uint localID, uint groupID, uint binOffset, uint baseIndex, bool
         uint col = ((i * THREAD_GROUP_SIZE) + localID) / ELEMENTS_PER_THREAD;
         uint row = ((i * THREAD_GROUP_SIZE) + localID) % ELEMENTS_PER_THREAD;
 
-        if (dataIndex < _NumScanValues)
+        if (dataIndex < numValuesToScan)
         {
             _ScanDst[binOffset + dataIndex] = gs_LDS[row][col] + partialSum;
         }
@@ -273,7 +275,7 @@ void Scan(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
 {
     uint baseIndex = ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE * groupID;
     
-    ScanPrefix(localID, groupID, 0, baseIndex, false);
+    ScanPrefix(localID, groupID, _NumScanValues, 0, baseIndex, false);
 }
 
 [numthreads(THREAD_GROUP_SIZE, 1, 1)]
@@ -289,7 +291,7 @@ void ScanAdd(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
     // Get the base index for this thread group
     uint baseIndex = (groupID % _NumReduceThreadGroupPerBin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
 
-    ScanPrefix(localID, groupID, binOffset, baseIndex, true);
+    ScanPrefix(localID, groupID, _NumThreadGroups, binOffset, baseIndex, true);
 }
 
 // Offset cache to avoid loading the offsets all the time
@@ -317,10 +319,11 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
     // Figure out this thread group's index into the block data (taking into account thread groups that need to do extra reads)
     uint threadgroupBlockStart = (blockSize * _NumBlocksPerThreadGroup * groupID);
     uint numBlocksToProcess = _NumBlocksPerThreadGroup;
+    uint numThreadGroupsWithoutAdditionalBlocks = _NumThreadGroups - _NumThreadGroupsWithAdditionalBlocks;
 
-    if (groupID >= _NumThreadGroups - _NumThreadGroupsWithAdditionalBlocks)
+    if (groupID >= numThreadGroupsWithoutAdditionalBlocks)
     {
-        threadgroupBlockStart += (groupID - (_NumThreadGroups - _NumThreadGroupsWithAdditionalBlocks)) * blockSize;
+        threadgroupBlockStart += (groupID - numThreadGroupsWithoutAdditionalBlocks) * blockSize;
         numBlocksToProcess++;
     }
 
