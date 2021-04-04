@@ -6,12 +6,12 @@
 
 uint CreateSortingKey(uint lodIndex, uint instanceTypeIndex, uint instanceIndex)
 {
-    return ((instanceTypeIndex << 23) & 0xff800000) | ((lodIndex << 20) & 0x00700000) | (instanceIndex & 0x000fffff);
+    return (instanceIndex << 12) | ((instanceTypeIndex << 3) & 0xff8) | (lodIndex & 0x7);
 }
 
 uint GetInstanceIndexFromSortingKey(uint sortingKey)
 {
-     return sortingKey & 0x000fffff;
+     return sortingKey >> 12;
 }
 
 #include "MatrixUtils.hlsl"

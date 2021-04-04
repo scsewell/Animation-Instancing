@@ -13,7 +13,12 @@ namespace AnimationInstancing
         public const int k_maxLodCount = 5;
         
         /// <summary>
-        /// The number of elements processed by each thread.
+        /// The number of bits in the sorting keys to sort, starting from the least significant bit.
+        /// </summary>
+        internal const int k_sortKeyBits = k_sortBitsPerPass * 3;
+        
+        /// <summary>
+        /// The number of elements processed by each thread in a sorting pass.
         /// </summary>
         internal const int k_sortElementsPerThread = 4;
         

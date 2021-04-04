@@ -1013,7 +1013,7 @@ namespace AnimationInstancing
             var sortKeysBuffer = s_sortKeysInBuffer;
             var sortKeysTempBuffer = s_sortKeysOutBuffer;
             
-            for (var shift = 0; shift < 32; shift += Constants.k_sortBitsPerPass)
+            for (var shift = 0; shift < Constants.k_sortKeyBits; shift += Constants.k_sortBitsPerPass)
             {
                 s_cullingCmdBuffer.SetComputeIntParam(
                     s_sortShader,
