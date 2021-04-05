@@ -1,1 +1,7 @@
-#include_with_pragmas "Sort.hlsl"
+#pragma kernel Count
+#pragma kernel CountReduce
+#pragma kernel Scan
+#pragma kernel ScanAdd
+#pragma kernel Scatter
+
+#include "Sort.hlsl"

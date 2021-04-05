@@ -15,11 +15,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#pragma kernel Count
-#pragma kernel CountReduce
-#pragma kernel Scan
-#pragma kernel ScanAdd
-#pragma kernel Scatter
+#ifndef ANIMATION_INSTANCING_SORT
+#define ANIMATION_INSTANCING_SORT
 
 #include "HLSLSupport.cginc"
 
@@ -208,8 +205,9 @@ uint BlockScanPrefix(uint localSum, uint localID)
     gs_LDSSums[localID] = localSum;
     
     // reduction
+    uint d;
     int offset = 1;
-    for (uint d = THREAD_GROUP_SIZE >> 1; d > 0; d >>= 1)
+    for (d = THREAD_GROUP_SIZE >> 1; d > 0; d >>= 1)
     {
         GroupMemoryBarrierWithGroupSync();
 
@@ -231,7 +229,7 @@ uint BlockScanPrefix(uint localSum, uint localID)
     }
 
     // downsweep
-    for (uint d = 1; d < THREAD_GROUP_SIZE; d <<= 1)
+    for (d = 1; d < THREAD_GROUP_SIZE; d <<= 1)
     {
         offset >>= 1;
 
@@ -288,8 +286,10 @@ groupshared int gs_LDS[ELEMENTS_PER_THREAD][THREAD_GROUP_SIZE];
 
 void ScanPrefix(uint localID, uint groupID, uint numValuesToScan, uint binOffset, uint baseIndex, bool addPartialSums)
 {
+    uint i;
+    
     // Perform coalesced loads into LDS
-    for (uint i = 0; i < ELEMENTS_PER_THREAD; i++)
+    for (i = 0; i < ELEMENTS_PER_THREAD; i++)
     {
         uint dataIndex = baseIndex + (i * THREAD_GROUP_SIZE) + localID;
 
@@ -304,7 +304,7 @@ void ScanPrefix(uint localID, uint groupID, uint numValuesToScan, uint binOffset
     // Calculate the local scan-prefix for current thread
     uint threadgroupSum = 0;
     
-    for (uint i = 0; i < ELEMENTS_PER_THREAD; i++)
+    for (i = 0; i < ELEMENTS_PER_THREAD; i++)
     {
         uint tmp = gs_LDS[i][localID];
         gs_LDS[i][localID] = threadgroupSum;
@@ -324,7 +324,7 @@ void ScanPrefix(uint localID, uint groupID, uint numValuesToScan, uint binOffset
     }
 
     // Add the block scanned-prefixes back in
-    for (uint i = 0; i < ELEMENTS_PER_THREAD; i++)
+    for (i = 0; i < ELEMENTS_PER_THREAD; i++)
     {
         gs_LDS[i][localID] += threadgroupSum;
     }
@@ -332,7 +332,7 @@ void ScanPrefix(uint localID, uint groupID, uint numValuesToScan, uint binOffset
     GroupMemoryBarrierWithGroupSync();
 
     // Perform coalesced writes to scan dst
-    for (uint i = 0; i < ELEMENTS_PER_THREAD; i++)
+    for (i = 0; i < ELEMENTS_PER_THREAD; i++)
     {
         uint dataIndex = baseIndex + (i * THREAD_GROUP_SIZE) + localID;
 
@@ -497,8 +497,9 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
             GroupMemoryBarrierWithGroupSync();
 
             // reduction
+            uint d;
             int offset = 1;
-            for (uint d = BIN_COUNT >> 1; d > 0; d >>= 1)
+            for (d = BIN_COUNT >> 1; d > 0; d >>= 1)
             {
                 GroupMemoryBarrierWithGroupSync();
 
@@ -520,7 +521,7 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
             }
 
             // downsweep
-            for (uint d = 1; d < BIN_COUNT; d <<= 1)
+            for (d = 1; d < BIN_COUNT; d <<= 1)
             {
                 offset >>= 1;
 
@@ -566,3 +567,5 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
         }
     }
 }
+
+#endif // ANIMATION_INSTANCING_SORT
