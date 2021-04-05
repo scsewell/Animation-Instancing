@@ -22,7 +22,7 @@ void ClearDrawArgs(int tID : SV_DispatchThreadID)
     }
 }
 
-uint FrustumCull(float4 clipPos)
+bool FrustumCull(float4 clipPos)
 {
     return
         clipPos.x <  clipPos.w &&
@@ -32,17 +32,12 @@ uint FrustumCull(float4 clipPos)
         clipPos.y > -clipPos.w;
 }
 
-// This is a fast approximation suitable for bounds that are 
-// of similar size in each dimention.
-uint IsOutsideBounds(float3 pos, float3 center, float3 extents)
+bool IsOutsideBounds(float3 pos, float3 center, float3 extents)
 {
+    // This is a fast approximation suitable for bounds that are 
+    // of similar size in each dimention.
     float3 disp = pos - center;
-    return dot(disp, disp) > 2 * dot(extents, extents);
-}
-
-float GetLodDistance(float screenHeight, float maxExtent)
-{
-    return _LodScale * (maxExtent / screenHeight);
+    return dot(disp, disp) > (2 * dot(extents, extents));
 }
 
 [numthreads(64, 1, 1)]
@@ -59,7 +54,7 @@ void Cull(uint tID : SV_DispatchThreadID)
     float4x4 modelMat = TransformToMatrix(transform);
     float4x4 mvp = mul(_ViewProj, modelMat);
 
-    // determine if the instance is visible in the frustum
+    // determine if the instance bounds are visible in the frustum
     float3 minCorner = animation.bounds.center - animation.bounds.extents;
     float3 maxCorner = animation.bounds.center + animation.bounds.extents;
 
@@ -73,26 +68,30 @@ void Cull(uint tID : SV_DispatchThreadID)
     corners[6] = float4(maxCorner.x, maxCorner.y, minCorner.z, 1.0);
     corners[7] = float4(maxCorner.x, maxCorner.y, maxCorner.z, 1.0);
 
-    uint isInFrustum = FrustumCull(mul(mvp, corners[0]));
+    bool isInFrustum = false;
 
     UNITY_UNROLL
-    for (i = 1; i < 8; i++)
+    for (i = 0; i < 8; i++)
     {
-        isInFrustum = saturate(isInFrustum + FrustumCull(mul(mvp, corners[i])));
+        isInFrustum = isInFrustum || FrustumCull(mul(mvp, corners[i]));
     }
 
-    // if the camera is in the instance bounds we cannot frustum cull
+    // check if the camera is inside the instance bounds
     float3 worldCenter = mul(modelMat, float4(animation.bounds.center, 1.0)).xyz;
-    float distanceToCamera = distance(_CameraPosition, worldCenter) / _LodBias;
     float3 scaledExtents = animation.bounds.extents * transform.scale;
-    float maxExtent = max(max(scaledExtents.x, scaledExtents.y), scaledExtents.z);
 
-    uint isVisible = 1;
-    if (IsOutsideBounds(_CameraPosition, worldCenter, scaledExtents))
-    {
-        isVisible *= isInFrustum;
-        isVisible *= distanceToCamera < GetLodDistance(lod.screenHeights[lod.lodCount - 1], maxExtent);
-    }
+    bool isCameraOutsideBounds = IsOutsideBounds(_CameraPosition, worldCenter, scaledExtents);
+
+    // check if the instance is culled based on LOD
+    float lodDistance = distance(_CameraPosition, worldCenter) / _LodBias;
+    float maxExtent = max(max(scaledExtents.x, scaledExtents.y), scaledExtents.z);
+    float lodFactor = _LodScale * maxExtent;
+    float cullDistance = lodFactor / lod.screenHeights[lod.lodCount - 1];
+
+    bool isLodVisible = lodDistance < cullDistance;
+
+    // determine the final visibility
+    bool isVisible = !isCameraOutsideBounds || (isInFrustum && isLodVisible);
 
     // select the appropriate lod
     uint selectedLod = 0;
@@ -100,7 +99,7 @@ void Cull(uint tID : SV_DispatchThreadID)
     UNITY_UNROLL
     for (i = 0; i < ANIMATION_INSTANCING_MAX_LOD_COUNT; i++)
     {
-        selectedLod += distanceToCamera > GetLodDistance(lod.screenHeights[i], maxExtent);
+        selectedLod += lodDistance > (lodFactor / lod.screenHeights[i]);
     }
 
     // prepare the sorting data for this instance
