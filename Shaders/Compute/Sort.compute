@@ -18,7 +18,9 @@
 #include "HLSLSupport.cginc"
 
 // required to use wave instrinsics
-#pragma use_dxc
+//#pragma use_dxc
+//#define ENABLE_WAVE_INTRINSICS
+//#pragma multi_compile _ ENABLE_WAVE_INTRINSICS
 
 #pragma kernel Count
 #pragma kernel CountReduce
@@ -126,6 +128,7 @@ groupshared uint gs_LDSSums[THREAD_GROUP_SIZE];
 
 uint ThreadgroupReduce(uint localSum, uint localID)
 {
+#if defined(ENABLE_WAVE_INTRINSICS)
     uint waveReduced = WaveActiveSum(localSum);
 
     // First lane in a wave writes out wave reduction to LDS (this accounts for num waves per group greater than HW wave size)
@@ -142,14 +145,40 @@ uint ThreadgroupReduce(uint localSum, uint localID)
     // First wave worth of threads sum up wave reductions
     if (!waveID)
     {
-        waveReduced = WaveActiveSum((localID < THREAD_GROUP_SIZE / WaveGetLaneCount()) ? gs_LDSSums[localID] : 0);
+        waveReduced = WaveActiveSum((localID < (THREAD_GROUP_SIZE / WaveGetLaneCount())) ? gs_LDSSums[localID] : 0);
     }
 
     return waveReduced;
+#else
+    // load each value into group shared memory
+    gs_LDSSums[localID] = localSum;
+
+    // reduction
+    int offset = 1;
+    for (uint d = THREAD_GROUP_SIZE >> 1; d > 0; d >>= 1)
+    {
+        GroupMemoryBarrierWithGroupSync();
+
+        if (localID < d)
+        {
+            int ai = offset * int(2 * localID + 1) - 1;
+            int bi = offset * int(2 * localID + 2) - 1;
+            gs_LDSSums[bi] += gs_LDSSums[ai];
+        }
+
+        offset <<= 1;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // return the reduction
+    return gs_LDSSums[THREAD_GROUP_SIZE - 1]; 
+#endif
 }
 
 uint BlockScanPrefix(uint localSum, uint localID)
 {
+#if defined(ENABLE_WAVE_INTRINSICS)
     uint wavePrefixed = WavePrefixSum(localSum);
 
     // Since we are dealing with thread group sizes greater than HW wave size, we need to account for what wave we are in.
@@ -176,6 +205,55 @@ uint BlockScanPrefix(uint localSum, uint localID)
     wavePrefixed += gs_LDSSums[waveID];
 
     return wavePrefixed;
+#else
+    // load each value into group shared memory
+    gs_LDSSums[localID] = localSum;
+    
+    // reduction
+    int offset = 1;
+    for (uint d = THREAD_GROUP_SIZE >> 1; d > 0; d >>= 1)
+    {
+        GroupMemoryBarrierWithGroupSync();
+
+        if (localID < d)
+        {
+            int ai = offset * int(2 * localID + 1) - 1;
+            int bi = offset * int(2 * localID + 2) - 1;
+            gs_LDSSums[bi] += gs_LDSSums[ai];
+        }
+
+        offset <<= 1;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (localID == THREAD_GROUP_SIZE - 1)
+    {
+        gs_LDSSums[localID] = 0;
+    }
+
+    // downsweep
+    for (uint d = 1; d < THREAD_GROUP_SIZE; d <<= 1)
+    {
+        offset >>= 1;
+
+        GroupMemoryBarrierWithGroupSync();
+
+        if (localID < d)
+        {
+            int ai = offset * int(2 * localID + 1) - 1;
+            int bi = offset * int(2 * localID + 2) - 1;
+            uint t = gs_LDSSums[ai];
+            gs_LDSSums[ai] = gs_LDSSums[bi];
+            gs_LDSSums[bi] += t;
+        }
+    }
+    
+    GroupMemoryBarrierWithGroupSync();
+    
+    // return the scan
+    return gs_LDSSums[localID]; 
+#endif
 }
 
 [numthreads(THREAD_GROUP_SIZE, 1, 1)]
@@ -299,7 +377,7 @@ groupshared uint gs_BinOffsetCache[THREAD_GROUP_SIZE];
 // Local histogram for offset calculations
 groupshared uint gs_LocalHistogram[BIN_COUNT];
 // Scratch area for algorithm
-groupshared uint gs_LDSScratch[THREAD_GROUP_SIZE];
+groupshared uint gs_LDSScratch[BIN_COUNT];
 
 [numthreads(THREAD_GROUP_SIZE, 1, 1)]
 void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
@@ -332,7 +410,7 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
 
     // Count value occurences
     uint newCount;
-    for (int blockCount = 0; blockCount < numBlocksToProcess; blockCount++, blockIndex += blockSize)
+    for (uint blockCount = 0; blockCount < numBlocksToProcess; blockCount++, blockIndex += blockSize)
     {
         uint dataIndex = blockIndex;
         
@@ -403,6 +481,7 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
 
             GroupMemoryBarrierWithGroupSync();
 
+#if defined(ENABLE_WAVE_INTRINSICS)
             // Prefix histogram
             uint histogramPrefixSum = WavePrefixSum(localID < BIN_COUNT ? gs_LocalHistogram[localID] : 0);
 
@@ -411,6 +490,54 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
             {
                 gs_LDSScratch[localID] = histogramPrefixSum;
             }
+#else
+            if (localID < BIN_COUNT)
+            {
+                gs_LDSScratch[localID] = gs_LocalHistogram[localID];
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+
+            // reduction
+            int offset = 1;
+            for (uint d = BIN_COUNT >> 1; d > 0; d >>= 1)
+            {
+                GroupMemoryBarrierWithGroupSync();
+
+                if (localID < d)
+                {
+                    int ai = offset * int(2 * localID + 1) - 1;
+                    int bi = offset * int(2 * localID + 2) - 1;
+                    gs_LDSScratch[bi] += gs_LDSScratch[ai];
+                }
+
+                offset <<= 1;
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+
+            if (localID == BIN_COUNT - 1)
+            {
+                gs_LDSScratch[localID] = 0;
+            }
+
+            // downsweep
+            for (uint d = 1; d < BIN_COUNT; d <<= 1)
+            {
+                offset >>= 1;
+
+                GroupMemoryBarrierWithGroupSync();
+
+                if (localID < d)
+                {
+                    int ai = offset * int(2 * localID + 1) - 1;
+                    int bi = offset * int(2 * localID + 2) - 1;
+                    uint t = gs_LDSScratch[ai];
+                    gs_LDSScratch[ai] = gs_LDSScratch[bi];
+                    gs_LDSScratch[bi] += t;
+                }
+            }
+#endif
 
             // Get the global offset for this key out of the cache
             uint globalOffset = gs_BinOffsetCache[keyIndex];
