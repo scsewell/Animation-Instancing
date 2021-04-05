@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace AnimationInstancing
 {
@@ -13,10 +14,18 @@ namespace AnimationInstancing
         [SerializeField]
         ComputeShader m_sort;
         [SerializeField]
+        ComputeShader m_sortDXC;
+        [SerializeField]
         ComputeShader m_compact;
 
         public ComputeShader Culling => m_culling;
-        public ComputeShader Sort => m_sort;
+        
+        public ComputeShader Sort => SystemInfo.graphicsDeviceType switch
+        {
+            GraphicsDeviceType.Direct3D12 => m_sortDXC,
+            _                             => m_sort,
+        };
+
         public ComputeShader Compact => m_compact;
     }
 }

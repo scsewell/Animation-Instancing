@@ -860,9 +860,8 @@ namespace AnimationInstancing
                     instanceTypeIndex = (uint)providerState.instanceTypeIndex,
                     drawCallCount = (uint)providerState.drawCallCount,
                     drawArgsBaseIndex = (uint)providerState.drawArgsBaseIndex,
-                    animationBaseIndex = (uint)providerState.animationBaseIndex,
                     
-                    animationIndex = (uint)instance.animationIndex,
+                    animationIndex = (uint)(providerState.animationBaseIndex + instance.animationIndex),
                     animationTime = instance.animationTime,
                 };
             }

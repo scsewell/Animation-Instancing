@@ -13,6 +13,6 @@ MonoBehaviour:
   m_Name: InstancingResources
   m_EditorClassIdentifier: 
   m_culling: {fileID: 7200000, guid: f754a051aeebaec4594532523897dd0c, type: 3}
-  m_scan: {fileID: 7200000, guid: 53baec539bf38a643a67da87d289045e, type: 3}
-  m_sort: {fileID: 7200000, guid: eb5d8b857ca2f814ba721ed45f6a0410, type: 3}
+  m_sort: {fileID: 7200000, guid: 1f9fe82fcf2e12c4f993334581d5b4dd, type: 3}
+  m_sortDXC: {fileID: 7200000, guid: eb5d8b857ca2f814ba721ed45f6a0410, type: 3}
   m_compact: {fileID: 7200000, guid: 724427c97730c9441be10124440befbd, type: 3}

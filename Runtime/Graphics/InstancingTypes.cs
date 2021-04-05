@@ -159,7 +159,6 @@ namespace AnimationInstancing
         public uint instanceTypeIndex;
         public uint drawCallCount;
         public uint drawArgsBaseIndex;
-        public uint animationBaseIndex;
         public uint animationIndex;
         public float animationTime;
     }

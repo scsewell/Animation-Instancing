@@ -1,0 +1,5 @@
+// required to use wave instrinsics
+#pragma use_dxc
+#define DXC_COMPILER
+
+#include_with_pragmas "Sort.hlsl"

@@ -24,13 +24,12 @@ void ClearDrawArgs(int tID : SV_DispatchThreadID)
 
 uint FrustumCull(float4 clipPos)
 {
-    return (
-        clipPos.z >  clipPos.w ||
-        clipPos.x < -clipPos.w ||
-        clipPos.x >  clipPos.w ||
-        clipPos.y < -clipPos.w ||
-        clipPos.y >  clipPos.w
-    ) ? 0 : 1;
+    return
+        clipPos.x <  clipPos.w &&
+        clipPos.y <  clipPos.w &&
+        clipPos.z <  clipPos.w &&
+        clipPos.x > -clipPos.w &&
+        clipPos.y > -clipPos.w;
 }
 
 // This is a fast approximation suitable for bounds that are 
@@ -53,7 +52,7 @@ void Cull(uint tID : SV_DispatchThreadID)
     
     InstanceData instance = _InstanceData[tID];
     LodData lod = _LodData[instance.lodIndex];
-    AnimationData animation = _AnimationData[instance.animationBaseIndex + instance.animationIndex];
+    AnimationData animation = _AnimationData[instance.animationIndex];
 
     // calculate the local to world matrix and mvp for the instance
     Transform transform = DecompressTransform(instance.transform);

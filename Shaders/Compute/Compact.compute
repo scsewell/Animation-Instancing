@@ -10,7 +10,7 @@ StructuredBuffer<uint> _SortKeys;
 RWStructuredBuffer<InstanceProperties> _InstanceProperties;
 RWStructuredBuffer<DrawArgs> _DrawArgs;
 
-[numthreads(512, 1, 1)]
+[numthreads(64, 1, 1)]
 void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
 {
     // scatter instance data based on the index determined by the sort
@@ -26,7 +26,7 @@ void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
         InstanceProperties properties;
         properties.model = model;
         properties.modelInv =  InvertMatrix(model);
-        properties.animationIndex = data.animationBaseIndex + data.animationIndex;
+        properties.animationIndex = data.animationIndex;
         properties.animationTime = data.animationTime;
         
         _InstanceProperties[tID] = properties;
