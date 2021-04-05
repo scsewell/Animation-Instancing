@@ -48,8 +48,7 @@ RWStructuredBuffer<uint> _SrcBuffer;    // The unsorted keys or scan data
 RWStructuredBuffer<uint> _DstBuffer;    // The sorted keys or prefixed data
 RWStructuredBuffer<uint> _SumTable;     // The sum table we will write sums to
 RWStructuredBuffer<uint> _ReduceTable;  // The reduced sum table we will write sums to
-RWStructuredBuffer<uint> _ScanSrc;      // Source for scan data
-RWStructuredBuffer<uint> _ScanDst;      // Destination for scan data
+RWStructuredBuffer<uint> _Scan;         // The scan data
 RWStructuredBuffer<uint> _ScanScratch;  // Scratch data for scan
 
 
@@ -298,7 +297,7 @@ void ScanPrefix(uint localID, uint groupID, uint numValuesToScan, uint binOffset
         uint col = ((i * THREAD_GROUP_SIZE) + localID) / ELEMENTS_PER_THREAD;
         uint row = ((i * THREAD_GROUP_SIZE) + localID) % ELEMENTS_PER_THREAD;
         
-        gs_LDS[row][col] = (dataIndex < numValuesToScan) ? _ScanSrc[binOffset + dataIndex] : 0;
+        gs_LDS[row][col] = (dataIndex < numValuesToScan) ? _Scan[binOffset + dataIndex] : 0;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -343,7 +342,7 @@ void ScanPrefix(uint localID, uint groupID, uint numValuesToScan, uint binOffset
 
         if (dataIndex < numValuesToScan)
         {
-            _ScanDst[binOffset + dataIndex] = gs_LDS[row][col] + partialSum;
+            _Scan[binOffset + dataIndex] = gs_LDS[row][col] + partialSum;
         }
     }
 }

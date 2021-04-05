@@ -1063,13 +1063,7 @@ namespace AnimationInstancing
                 s_cullingCmdBuffer.SetComputeBufferParam(
                     s_sortShader, 
                     s_sortScanKernel.kernelID,
-                    Properties.Sort._ScanSrc,
-                    s_sortReducedScratchBuffer
-                );
-                s_cullingCmdBuffer.SetComputeBufferParam(
-                    s_sortShader, 
-                    s_sortScanKernel.kernelID,
-                    Properties.Sort._ScanDst,
+                    Properties.Sort._Scan,
                     s_sortReducedScratchBuffer
                 );
 
@@ -1086,13 +1080,7 @@ namespace AnimationInstancing
                 s_cullingCmdBuffer.SetComputeBufferParam(
                     s_sortShader, 
                     s_sortScanAddKernel.kernelID,
-                    Properties.Sort._ScanSrc,
-                    s_sortScratchBuffer
-                );
-                s_cullingCmdBuffer.SetComputeBufferParam(
-                    s_sortShader, 
-                    s_sortScanAddKernel.kernelID,
-                    Properties.Sort._ScanDst,
+                    Properties.Sort._Scan,
                     s_sortScratchBuffer
                 );
                 s_cullingCmdBuffer.SetComputeBufferParam(

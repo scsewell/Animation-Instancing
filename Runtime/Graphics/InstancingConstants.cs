@@ -58,8 +58,7 @@ namespace AnimationInstancing
             public static readonly int _DstBuffer = Shader.PropertyToID("_DstBuffer");
             public static readonly int _SumTable = Shader.PropertyToID("_SumTable");
             public static readonly int _ReduceTable = Shader.PropertyToID("_ReduceTable");
-            public static readonly int _ScanSrc = Shader.PropertyToID("_ScanSrc");
-            public static readonly int _ScanDst = Shader.PropertyToID("_ScanDst");
+            public static readonly int _Scan = Shader.PropertyToID("_Scan");
             public static readonly int _ScanScratch = Shader.PropertyToID("_ScanScratch");
         }
 
