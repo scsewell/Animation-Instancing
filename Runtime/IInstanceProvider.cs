@@ -3,6 +3,8 @@
 using Unity.Collections;
 using Unity.Mathematics;
 
+using UnityEngine;
+
 namespace AnimationInstancing
 {
     /// <summary>
@@ -84,7 +86,7 @@ namespace AnimationInstancing
         /// <summary>
         /// The material to use when drawing the sub mesh.
         /// </summary>
-        public MaterialHandle materialHandle;
+        public Handle<Material> materialHandle;
     }
 
     /// <summary>
@@ -95,7 +97,7 @@ namespace AnimationInstancing
         /// <summary>
         /// The mesh to render the instances with.
         /// </summary>
-        public MeshHandle mesh;
+        public Handle<Mesh> mesh;
         
         /// <summary>
         /// The levels of detail to render the instances with.
@@ -105,7 +107,7 @@ namespace AnimationInstancing
         /// <summary>
         /// The animation set used for the instances.
         /// </summary>
-        public AnimationSetHandle animationSet;
+        public Handle<AnimationSet> animationSet;
     }
 
     /// <summary>
@@ -124,7 +126,8 @@ namespace AnimationInstancing
         /// Gets the data used to render the instances.
         /// </summary>
         /// <param name="state">Returns the current instance state.</param>
-        /// <param name="subMeshes">Returns the sub meshes of the mesh to draw.</param>
+        /// <param name="subMeshes">Returns the sub meshes of the mesh to draw. Only the
+        /// first <see cref="Constants.k_maxSubMeshCount"/> items will be considered.</param>
         /// <param name="instances">Returns the instance data.</param>
         void GetState(out RenderState state, out NativeSlice<SubMesh> subMeshes, out NativeSlice<Instance> instances);
         

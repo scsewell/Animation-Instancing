@@ -13,6 +13,21 @@ namespace AnimationInstancing
         public const int k_maxLodCount = 5;
         
         /// <summary>
+        /// The maximum number of sub meshes each instance can use.
+        /// </summary>
+        public const int k_maxSubMeshCount = 5;
+
+        /// <summary>
+        /// The maximum number of instances that can be rendered.
+        /// </summary>
+        internal const int k_maxInstanceCount = 1 << 20;
+
+        /// <summary>
+        /// The maximum number of unique mesh/sub mesh/material combinations that can be active simultaneously.
+        /// </summary>
+        internal const int k_maxInstanceTypes = 1 << 12;
+
+        /// <summary>
         /// The number of bits in the sorting keys to sort, starting from the least significant bit.
         /// </summary>
         internal const int k_sortKeyBits = k_sortBitsPerPass * 3;
@@ -30,7 +45,7 @@ namespace AnimationInstancing
         /// <summary>
         /// The number of sorting bins needed per thread.
         /// </summary>
-        internal const int k_sortBinCount = (1 << k_sortBitsPerPass);
+        internal const int k_sortBinCount = 1 << k_sortBitsPerPass;
     }
 
     /// <summary>
@@ -45,7 +60,7 @@ namespace AnimationInstancing
             public static readonly int _LodData = Shader.PropertyToID("_LodData");
             public static readonly int _AnimationData = Shader.PropertyToID("_AnimationData");
             public static readonly int _InstanceData = Shader.PropertyToID("_InstanceData");
-            public static readonly int _DrawArgs = Shader.PropertyToID("_DrawArgs");
+            public static readonly int _InstanceCounts = Shader.PropertyToID("_InstanceCounts");
             public static readonly int _SortKeys = Shader.PropertyToID("_SortKeys");
         }
         
@@ -67,9 +82,16 @@ namespace AnimationInstancing
             public static readonly int _ConstantBuffer = Shader.PropertyToID("CullingPropertyBuffer");
 
             public static readonly int _InstanceData = Shader.PropertyToID("_InstanceData");
-            public static readonly int _DrawCallCounts = Shader.PropertyToID("_DrawCallCounts");
             public static readonly int _SortKeys = Shader.PropertyToID("_SortKeys");
             public static readonly int _InstanceProperties = Shader.PropertyToID("_InstanceProperties");
+        }
+
+        public static class SetDrawArgs
+        {
+            public static readonly int _ConstantBuffer = Shader.PropertyToID("CullingPropertyBuffer");
+
+            public static readonly int _InstanceCounts = Shader.PropertyToID("_InstanceCounts");
+            public static readonly int _InstanceTypeData = Shader.PropertyToID("_InstanceTypeData");
             public static readonly int _DrawArgs = Shader.PropertyToID("_DrawArgs");
         }
 
@@ -90,7 +112,7 @@ namespace AnimationInstancing
     {
         public static class Culling
         {
-            public const string k_clearDrawArgs = "ClearDrawArgs";
+            public const string k_resetCounts = "ResetCounts";
             public const string k_cull = "Cull";
         }
         
@@ -104,6 +126,11 @@ namespace AnimationInstancing
         }
 
         public static class Compact
+        {
+            public const string k_main = "CSMain";
+        }
+        
+        public static class SetDrawArgs
         {
             public const string k_main = "CSMain";
         }

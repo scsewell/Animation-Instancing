@@ -8,7 +8,7 @@ namespace AnimationInstancing
     /// A class that stores an animation atlas texture and the details about the animation graph.
     /// </summary>
     [Serializable]
-    public class InstancedAnimationSet
+    public class AnimationSet
     {
         [SerializeField]
         [Tooltip("The texture containing the animation data.")]
@@ -29,11 +29,11 @@ namespace AnimationInstancing
         public InstancedAnimation[] Animations => m_animations;
 
         /// <summary>
-        /// Creates a <see cref="InstancedAnimationSet"/> instance.
+        /// Creates a <see cref="AnimationSet"/> instance.
         /// </summary>
         /// <param name="texture">The texture containing the animation data.</param>
         /// <param name="animations">The animations in the animation texture.</param>
-        public InstancedAnimationSet(Texture2D texture, InstancedAnimation[] animations)
+        public AnimationSet(Texture2D texture, InstancedAnimation[] animations)
         {
             if (texture == null)
             {
@@ -57,7 +57,7 @@ namespace AnimationInstancing
     {
         [SerializeField]
         [Tooltip("The animation set.")]
-        InstancedAnimationSet m_animationSet;
+        AnimationSet m_animationSet;
 
         [SerializeField]
         [Tooltip("The meshes that can be used when playing the animations.")]
@@ -66,7 +66,7 @@ namespace AnimationInstancing
         /// <summary>
         /// The animation set.
         /// </summary>
-        public InstancedAnimationSet AnimationSet => m_animationSet;
+        public AnimationSet AnimationSet => m_animationSet;
 
         /// <summary>
         /// The meshes that can be used when playing the animation.
@@ -79,7 +79,7 @@ namespace AnimationInstancing
         /// <param name="animationSet">The animation set.</param>
         /// <param name="meshes">The meshes that can be used when playing the animations.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="animationSet"/> or <paramref name="meshes"/> is null.</exception>
-        public static InstancedAnimationAsset Create(InstancedAnimationSet animationSet, InstancedMesh[] meshes)
+        public static InstancedAnimationAsset Create(AnimationSet animationSet, InstancedMesh[] meshes)
         {
             if (animationSet == null)
             {

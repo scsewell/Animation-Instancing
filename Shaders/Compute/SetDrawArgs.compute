@@ -1,0 +1,63 @@
+﻿#include "HLSLSupport.cginc"
+#include "../InstancingCore.hlsl"
+
+#include "Scan.hlsl"
+
+#pragma kernel CSMain
+
+#define THREAD_GROUP_SIZE 1024
+
+StructuredBuffer<uint> _InstanceCounts;
+StructuredBuffer<uint> _InstanceTypeData;
+
+RWStructuredBuffer<DrawArgs> _DrawArgs;
+
+// TODO: needs to be 8 (or 4) elements per thread
+groupshared uint gs_Counts[2 * THREAD_GROUP_SIZE];
+groupshared uint gs_Offsets[2 * THREAD_GROUP_SIZE];
+
+[numthreads(THREAD_GROUP_SIZE, 1, 1)]
+void CSMain(uint tID : SV_DispatchThreadID)
+{
+    // load in the instance count for each instance type
+    uint2 indices;
+    indices.x = 2 * tID;
+    indices.y = 2 * tID + 1;
+    
+    uint2 values;
+    values.x = indices.x < _NumInstanceCounts ? _InstanceCounts[indices.x] : 0;
+    values.y = indices.y < _NumInstanceCounts ? _InstanceCounts[indices.y] : 0;
+
+    gs_Counts[indices.x] = values.x;
+    gs_Counts[indices.y] = values.y;
+    
+    // compute the offsets for the instance types
+    gs_Offsets[indices.x] = values.x;
+    gs_Offsets[indices.y] = values.y;
+    
+    PREFIX_SUM(gs_Offsets, THREAD_GROUP_SIZE, tID);
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // write the counts and offsets to the draw args buffer
+    for (uint i = 0; i < 4; i++)
+    {
+        uint countIndex = i * THREAD_GROUP_SIZE + tID;
+        
+        if (countIndex < _NumInstanceCounts)
+        {
+            uint instanceCount = gs_Counts[countIndex];
+            uint instanceStart = gs_Offsets[countIndex];
+            
+            uint instanceTypeData = _InstanceTypeData[countIndex]; 
+            uint drawArgBaseIndex = instanceTypeData & 0xffff; 
+            uint drawCallCount = instanceTypeData >> 16;
+            
+            for (uint drawArg = drawArgBaseIndex; drawArg < drawArgBaseIndex + drawCallCount; drawArg++)
+            {
+                _DrawArgs[drawArg].instanceCount = instanceCount;
+                _DrawArgs[drawArg].instanceStart = instanceStart;
+            }
+        }
+    }
+}

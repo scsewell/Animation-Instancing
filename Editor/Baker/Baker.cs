@@ -78,7 +78,7 @@ namespace AnimationInstancing
                 EditorUtility.DisplayProgressBar("Creating Asset", string.Empty, 1f);
 
                 var asset = InstancedAnimationAsset.Create(
-                    new InstancedAnimationSet(m_animationTexture, m_animations.ToArray()),
+                    new AnimationSet(m_animationTexture, m_animations.ToArray()),
                     m_meshes.ToArray()
                 );
 

@@ -19,6 +19,7 @@
 #define ANIMATION_INSTANCING_SORT
 
 #include "HLSLSupport.cginc"
+#include "Scan.hlsl"
 
 #if defined(DXC_COMPILER)
 #define ENABLE_WAVE_INTRINSICS
@@ -145,28 +146,12 @@ uint ThreadgroupReduce(uint localSum, uint localID)
 
     return waveReduced;
 #else
-    // load each value into group shared memory
     gs_LDSSums[localID] = localSum;
 
-    // reduction
-    int offset = 1;
-    for (uint d = THREAD_GROUP_SIZE >> 1; d > 0; d >>= 1)
-    {
-        GroupMemoryBarrierWithGroupSync();
-
-        if (localID < d)
-        {
-            int ai = offset * int(2 * localID + 1) - 1;
-            int bi = offset * int(2 * localID + 2) - 1;
-            gs_LDSSums[bi] += gs_LDSSums[ai];
-        }
-
-        offset <<= 1;
-    }
-
+    REDUCE(gs_LDSSums, THREAD_GROUP_SIZE, localID);
+    
     GroupMemoryBarrierWithGroupSync();
 
-    // return the reduction
     return gs_LDSSums[THREAD_GROUP_SIZE - 1]; 
 #endif
 }
@@ -201,53 +186,12 @@ uint BlockScanPrefix(uint localSum, uint localID)
 
     return wavePrefixed;
 #else
-    // load each value into group shared memory
     gs_LDSSums[localID] = localSum;
-    
-    // reduction
-    uint d;
-    int offset = 1;
-    for (d = THREAD_GROUP_SIZE >> 1; d > 0; d >>= 1)
-    {
-        GroupMemoryBarrierWithGroupSync();
 
-        if (localID < d)
-        {
-            int ai = offset * int(2 * localID + 1) - 1;
-            int bi = offset * int(2 * localID + 2) - 1;
-            gs_LDSSums[bi] += gs_LDSSums[ai];
-        }
-
-        offset <<= 1;
-    }
+    PREFIX_SUM(gs_LDSSums, THREAD_GROUP_SIZE, localID);
 
     GroupMemoryBarrierWithGroupSync();
 
-    if (localID == THREAD_GROUP_SIZE - 1)
-    {
-        gs_LDSSums[localID] = 0;
-    }
-
-    // downsweep
-    for (d = 1; d < THREAD_GROUP_SIZE; d <<= 1)
-    {
-        offset >>= 1;
-
-        GroupMemoryBarrierWithGroupSync();
-
-        if (localID < d)
-        {
-            int ai = offset * int(2 * localID + 1) - 1;
-            int bi = offset * int(2 * localID + 2) - 1;
-            uint t = gs_LDSSums[ai];
-            gs_LDSSums[ai] = gs_LDSSums[bi];
-            gs_LDSSums[bi] += t;
-        }
-    }
-    
-    GroupMemoryBarrierWithGroupSync();
-    
-    // return the scan
     return gs_LDSSums[localID]; 
 #endif
 }
@@ -494,48 +438,7 @@ void Scatter(uint localID : SV_GroupThreadID, uint groupID : SV_GroupID)
                 gs_LDSScratch[localID] = gs_LocalHistogram[localID];
             }
 
-            GroupMemoryBarrierWithGroupSync();
-
-            // reduction
-            uint d;
-            int offset = 1;
-            for (d = BIN_COUNT >> 1; d > 0; d >>= 1)
-            {
-                GroupMemoryBarrierWithGroupSync();
-
-                if (localID < d)
-                {
-                    int ai = offset * int(2 * localID + 1) - 1;
-                    int bi = offset * int(2 * localID + 2) - 1;
-                    gs_LDSScratch[bi] += gs_LDSScratch[ai];
-                }
-
-                offset <<= 1;
-            }
-
-            GroupMemoryBarrierWithGroupSync();
-
-            if (localID == BIN_COUNT - 1)
-            {
-                gs_LDSScratch[localID] = 0;
-            }
-
-            // downsweep
-            for (d = 1; d < BIN_COUNT; d <<= 1)
-            {
-                offset >>= 1;
-
-                GroupMemoryBarrierWithGroupSync();
-
-                if (localID < d)
-                {
-                    int ai = offset * int(2 * localID + 1) - 1;
-                    int bi = offset * int(2 * localID + 2) - 1;
-                    uint t = gs_LDSScratch[ai];
-                    gs_LDSScratch[ai] = gs_LDSScratch[bi];
-                    gs_LDSScratch[bi] += t;
-                }
-            }
+            PREFIX_SUM(gs_LDSScratch, BIN_COUNT, localID);
 #endif
 
             // Get the global offset for this key out of the cache

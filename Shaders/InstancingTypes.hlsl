@@ -1,13 +1,6 @@
 ﻿#ifndef ANIMATION_INSTANCING_TYPES_INCLUDED
 #define ANIMATION_INSTANCING_TYPES_INCLUDED
 
-struct CompressedTransform
-{
-	float3 position;
-	uint rotation;
-	float scale;
-};
-
 struct Transform
 {
     float3 position;
@@ -43,31 +36,26 @@ struct DrawArgs
     uint instanceStart;
 };
 
+struct CompressedQuaternion
+{
+	uint packedValue;
+};
+
+struct CompressedTransform
+{
+	float3 position;
+	CompressedQuaternion rotation;
+	float scale;
+};
+
 struct InstanceData
 {
     CompressedTransform transform;
     uint lodIndex; // pack the indices to save space
-    uint instanceTypeIndex;
-    uint drawCallCount;
-    uint drawArgsBaseIndex;
+    uint countBaseIndex;
     uint animationIndex;
     float animationTime;
 };
-
-// uint GetInstanceLodIndex(InstanceData data)
-// {
-//     return data.packedDrawData & 0x000000FF;
-// }
-//
-// uint GetInstanceDrawCallCount(InstanceData data)
-// {
-//     return (data.packedDrawData & 0x0000FF00) >> 8;
-// }
-//
-// uint GetInstanceDrawArgsBaseIndex(InstanceData data)
-// {
-//     return (data/packedDrawData & 0xFFFF0000) >> 16;
-// }
 
 struct InstanceProperties
 {
@@ -83,7 +71,7 @@ float3 _CameraPosition;
 float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
 float _LodBias;
 int _InstanceCount;
-int _DrawArgsCount;
+uint _NumInstanceCounts;
 CBUFFER_END
 
 #endif // ANIMATION_INSTANCING_TYPES_INCLUDED

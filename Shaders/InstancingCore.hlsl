@@ -2,14 +2,15 @@
 #define ANIMATION_INSTANCING_CORE_INCLUDED
 
 #define ANIMATION_INSTANCING_MAX_LOD_COUNT 5
+#define ANIMATION_INSTANCING_MAX_INSTANCE_TYPES (1 << 12)
 #define ANIMATION_INSTANCING_NULL_SORT_KEY 0xffffffff
 
 #include "InstancingTypes.hlsl"
 #include "MatrixUtils.hlsl"
 
-uint CreateSortingKey(uint lodIndex, uint instanceTypeIndex, uint instanceIndex)
+uint CreateSortingKey(uint countIndex, uint instanceIndex)
 {
-    return (instanceIndex << 12) | ((instanceTypeIndex << 3) & 0xff8) | (lodIndex & 0x7);
+    return (instanceIndex << 12) | (countIndex & 0xfff);
 }
 
 uint GetInstanceIndexFromSortingKey(uint sortingKey)
@@ -17,8 +18,10 @@ uint GetInstanceIndexFromSortingKey(uint sortingKey)
      return sortingKey >> 12;
 }
 
-float4 DecompressRotation(uint r)
+float4 DecompressRotation(CompressedQuaternion q)
 {
+    uint r = q.packedValue;
+    
     float4 values;
     values.x = float(int((r >>  2) & 0x3ff) - 512) / 512.0;
     values.y = float(int((r >> 12) & 0x3ff) - 512) / 512.0;

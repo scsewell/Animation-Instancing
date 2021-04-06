@@ -17,6 +17,8 @@ namespace AnimationInstancing
         ComputeShader m_sortDXC;
         [SerializeField]
         ComputeShader m_compact;
+        [SerializeField]
+        ComputeShader m_setDrawArgs;
 
         public ComputeShader Culling => m_culling;
         
@@ -27,5 +29,7 @@ namespace AnimationInstancing
         };
 
         public ComputeShader Compact => m_compact;
+        
+        public ComputeShader SetDrawArgs => m_setDrawArgs;
     }
 }

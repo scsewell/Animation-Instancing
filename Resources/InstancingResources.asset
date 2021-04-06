@@ -16,3 +16,4 @@ MonoBehaviour:
   m_sort: {fileID: 7200000, guid: 1f9fe82fcf2e12c4f993334581d5b4dd, type: 3}
   m_sortDXC: {fileID: 7200000, guid: eb5d8b857ca2f814ba721ed45f6a0410, type: 3}
   m_compact: {fileID: 7200000, guid: 724427c97730c9441be10124440befbd, type: 3}
+  m_setDrawArgs: {fileID: 7200000, guid: 4fbae7cecb6d0164081273882eb6599e, type: 3}

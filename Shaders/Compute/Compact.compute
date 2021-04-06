@@ -4,11 +4,9 @@
 #pragma kernel CSMain
 
 StructuredBuffer<InstanceData> _InstanceData;
-StructuredBuffer<uint> _DrawCallCounts;
 StructuredBuffer<uint> _SortKeys;
 
 RWStructuredBuffer<InstanceProperties> _InstanceProperties;
-RWStructuredBuffer<DrawArgs> _DrawArgs;
 
 [numthreads(64, 1, 1)]
 void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
@@ -30,24 +28,5 @@ void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
         properties.animationTime = data.animationTime;
         
         _InstanceProperties[tID] = properties;
-    }
-
-    // write the index of the first instance of this type in the draw args buffer
-    if ((tID * groupID) == 0)
-    {
-		// use scan algorithm instead. Also consider deferring modifying draw args until here
-        int instanceStart = 0;
-        
-        for (int i = 0; i < _DrawArgsCount;)
-        {
-            instanceStart += i > 0 ? _DrawArgs[i - 1].instanceCount : 0;
-            uint drawCallCount = _DrawCallCounts[i];
-            
-            for (uint j = 0; j < drawCallCount; j++)
-            {
-                _DrawArgs[i].instanceStart = instanceStart;
-                i++;
-            }
-        }
     }
 }

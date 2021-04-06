@@ -18,9 +18,9 @@ namespace AnimationInstancing
         [SerializeField]
         int m_instanceCount = 100;
 
-        MeshHandle m_meshHandle;
-        AnimationSetHandle m_animationSetHandle;
-        NativeArray<MaterialHandle> m_materialHandles;
+        Handle<Mesh> m_meshHandle;
+        Handle<AnimationSet> m_animationSetHandle;
+        NativeArray<Handle<Material>> m_materialHandles;
         NativeArray<SubMesh> m_subMeshes;
         NativeArray<Instance> m_instances;
         NativeArray<float> m_animationLengths;
@@ -50,7 +50,7 @@ namespace AnimationInstancing
             m_meshHandle = InstancingManager.RegisterMesh(mesh.Mesh);
             m_animationSetHandle = InstancingManager.RegisterAnimationSet(m_animationAsset.AnimationSet);
          
-            m_materialHandles = new NativeArray<MaterialHandle>(m_materials.Length, Allocator.Persistent);
+            m_materialHandles = new NativeArray<Handle<Material>>(m_materials.Length, Allocator.Persistent);
             for (var i = 0; i < m_materialHandles.Length; i++)
             {
                 m_materialHandles[i] = InstancingManager.RegisterMaterial(m_materials[i]);

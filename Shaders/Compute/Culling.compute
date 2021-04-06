@@ -1,24 +1,22 @@
 ﻿#include "HLSLSupport.cginc"
 #include "../InstancingCore.hlsl"
 
-#pragma kernel ClearDrawArgs
+#pragma kernel ResetCounts
 #pragma kernel Cull
 
 StructuredBuffer<LodData> _LodData;
 StructuredBuffer<AnimationData> _AnimationData;
 StructuredBuffer<InstanceData> _InstanceData;
 
-RWStructuredBuffer<uint> _DrawArgs;
+RWStructuredBuffer<uint> _InstanceCounts;
 RWStructuredBuffer<uint> _SortKeys;
 
 [numthreads(64, 1, 1)]
-void ClearDrawArgs(int tID : SV_DispatchThreadID)
+void ResetCounts(uint tID : SV_DispatchThreadID)
 {
-    if (tID < _DrawArgsCount)
+    if (tID < _NumInstanceCounts)
     {
-		// Clear the instance count and start values
-        _DrawArgs[(tID * 5) + 1] = 0;
-        _DrawArgs[(tID * 5) + 4] = 0;
+		_InstanceCounts[tID] = 0;
     }
 }
 
@@ -103,19 +101,12 @@ void Cull(uint tID : SV_DispatchThreadID)
     }
 
     // prepare the sorting data for this instance
-    uint sortingKey = CreateSortingKey(selectedLod, instance.instanceTypeIndex, tID);
+    uint countIndex = instance.countBaseIndex + selectedLod;
+    uint sortingKey = CreateSortingKey(countIndex, tID);
 
     if (tID < (uint)_InstanceCount)
     {
-        // increase the drawn instance count for the lod of each sub mesh
-        uint drawArgsIndex = instance.drawArgsBaseIndex + (selectedLod * instance.drawCallCount);
-
-        for (i = 0; i < instance.drawCallCount; i++)
-        {
-            InterlockedAdd(_DrawArgs[(drawArgsIndex * 5) + 1], isVisible);
-            drawArgsIndex++;
-        }
-
+        InterlockedAdd(_InstanceCounts[countIndex], isVisible);
         _SortKeys[tID] = isVisible ? sortingKey : ANIMATION_INSTANCING_NULL_SORT_KEY;
     }
 }
