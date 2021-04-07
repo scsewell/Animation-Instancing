@@ -553,13 +553,6 @@ namespace AnimationInstancing
             Profiler.EndSample();
         }
 
-        struct Data
-        {
-            int countIndex;
-            int drawCallIndex;
-            int drawCallCount;
-        }
-
         static void UpdateDrawArgsBuffers()
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateDrawArgsBuffers)}");
