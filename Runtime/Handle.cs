@@ -62,45 +62,74 @@ namespace AnimationInstancing
     
     class HandleManager<TClass> where TClass : class
     {
-        readonly Dictionary<Handle<TClass>, TClass> m_forward = new Dictionary<Handle<TClass>, TClass>();
-        readonly Dictionary<TClass, Handle<TClass>> m_reverse = new Dictionary<TClass, Handle<TClass>>();
+        struct HandleInfo
+        {
+            public Handle<TClass> handle;
+            public int referenceCount;
+        }
+        
+        readonly Dictionary<Handle<TClass>, TClass> m_handleToInstance = new Dictionary<Handle<TClass>, TClass>();
+        readonly Dictionary<TClass, HandleInfo> m_instanceToHandle = new Dictionary<TClass, HandleInfo>();
         int m_count = 1;
 
         public bool Register(TClass instance, out Handle<TClass> handle)
         {
-            if (m_reverse.TryGetValue(instance, out handle))
+            // if this instance is already registered increase the reference count return the handle
+            if (m_instanceToHandle.TryGetValue(instance, out var handleInfo))
             {
+                handleInfo.referenceCount++;
+                m_instanceToHandle[instance] = handleInfo;
+
+                handle = handleInfo.handle;
                 return false;
             }
 
+            // allocate a new handle
             handle = new Handle<TClass>(m_count++);
 
-            m_forward.Add(handle, instance);
-            m_reverse.Add(instance, handle);
+            m_handleToInstance.Add(handle, instance);
+            m_instanceToHandle.Add(instance, new HandleInfo
+            {
+                handle = handle,
+                referenceCount = 1,
+            });
+            
             return true;
         }
         
         public bool Deregister(Handle<TClass> handle)
         {
-            if (!m_forward.TryGetValue(handle, out var instance))
+            // check if this handle is valid
+            if (!m_handleToInstance.TryGetValue(handle, out var instance))
             {
                 return false;
             }
+
+            // decrement the reference count
+            var handleInfo = m_instanceToHandle[instance];
+            handleInfo.referenceCount--;
+
+            // when there are no users remove the handle
+            if (handleInfo.referenceCount == 0)
+            {
+                m_handleToInstance.Remove(handle);
+                m_instanceToHandle.Remove(instance);
+                return true;
+            }
             
-            m_forward.Remove(handle);
-            m_reverse.Remove(instance);
-            return true;
+            m_instanceToHandle[instance] = handleInfo;
+            return false;
         }
 
         public TClass GetInstance(Handle<TClass> handle)
         {
-            return m_forward[handle];
+            return m_handleToInstance[handle];
         }
 
         public void Clear()
         {
-            m_forward.Clear();
-            m_reverse.Clear();
+            m_handleToInstance.Clear();
+            m_instanceToHandle.Clear();
             m_count = 1;
         }
     }

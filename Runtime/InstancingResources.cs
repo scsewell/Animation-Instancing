@@ -22,11 +22,19 @@ namespace AnimationInstancing
 
         public ComputeShader Culling => m_culling;
         
-        public ComputeShader Sort => SystemInfo.graphicsDeviceType switch
+        public ComputeShader Sort
         {
-            GraphicsDeviceType.Direct3D12 => m_sortDXC,
-            _                             => m_sort,
-        };
+            get
+            {
+                switch (SystemInfo.graphicsDeviceType)
+                {
+                    case GraphicsDeviceType.Metal:
+                    case GraphicsDeviceType.Vulkan:
+                    case GraphicsDeviceType.Direct3D12: return m_sortDXC;
+                    default:                            return m_sort;
+                }
+            }
+        }
 
         public ComputeShader Compact => m_compact;
         

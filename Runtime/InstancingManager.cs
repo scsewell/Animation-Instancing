@@ -313,6 +313,12 @@ namespace AnimationInstancing
         /// <summary>
         /// Registers a mesh to the instance manager.
         /// </summary>
+        /// <remarks>
+        /// If <paramref name="mesh"/> is already registered, an internal reference count is incremented
+        /// and the existing handle is returned. <see cref="DeregisterMesh"/> must be called an equal number of
+        /// times before the resources allocated for the registered instance are released. This behaviour allows
+        /// different systems to register and deregister the same instances without interfering with each other.
+        /// </remarks>
         /// <param name="mesh">The mesh to register.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="mesh"/> is null.</exception>
         public static Handle<Mesh> RegisterMesh(Mesh mesh)
@@ -364,6 +370,12 @@ namespace AnimationInstancing
         /// <summary>
         /// Registers a material to the instance manager.
         /// </summary>
+        /// <remarks>
+        /// If <paramref name="material"/> is already registered, an internal reference count is incremented
+        /// and the existing handle is returned. <see cref="DeregisterMaterial"/> must be called an equal number of
+        /// times before the resources allocated for the registered instance are released. This behaviour allows
+        /// different systems to register and deregister the same instances without interfering with each other.
+        /// </remarks>
         /// <param name="material">The material to register.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="material"/> is null.</exception>
         public static Handle<Material> RegisterMaterial(Material material)
@@ -389,6 +401,12 @@ namespace AnimationInstancing
         /// <summary>
         /// Registers an animation set to the instance manager.
         /// </summary>
+        /// <remarks>
+        /// If <paramref name="animationSet"/> is already registered, an internal reference count is incremented
+        /// and the existing handle is returned. <see cref="DeregisterAnimationSet"/> must be called an equal number of
+        /// times before the resources allocated for the registered instance are released. This behaviour allows
+        /// different systems to register and deregister the same instances without interfering with each other.
+        /// </remarks>
         /// <param name="animationSet">The animation set to register.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="animationSet"/> is null.</exception>
         public static Handle<AnimationSet> RegisterAnimationSet(AnimationSet animationSet)
