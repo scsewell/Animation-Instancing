@@ -123,15 +123,12 @@ Shader "Universal Render Pipeline/Instanced Animation/Lit"
             // GPU Instancing
             #pragma multi_compile_instancing
             #pragma multi_compile _ DOTS_INSTANCING_ON
-            #pragma instancing_options procedural:Setup
+            #pragma instancing_options procedural:InstanceSetup
 
             #pragma vertex LitPassVertexAnimated
             #pragma fragment LitPassFragment
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/LitInput.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/LitForwardPass.hlsl"
-
-            #include "../AnimationInstancing.hlsl"
             #include "/Passes/LitForwardPass.hlsl"
             ENDHLSL
         }
@@ -161,12 +158,13 @@ Shader "Universal Render Pipeline/Instanced Animation/Lit"
             // GPU Instancing
             #pragma multi_compile_instancing
             #pragma multi_compile _ DOTS_INSTANCING_ON
+            #pragma instancing_options procedural:InstanceSetup
 
-            #pragma vertex ShadowPassVertex
+            #pragma vertex ShadowPassVertexAnimated
             #pragma fragment ShadowPassFragment
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/LitInput.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/ShadowCasterPass.hlsl"
+            #include "/Passes/ShadowCasterPass.hlsl"
             ENDHLSL
         }
 
@@ -221,12 +219,13 @@ Shader "Universal Render Pipeline/Instanced Animation/Lit"
             // GPU Instancing
             #pragma multi_compile_instancing
             #pragma multi_compile _ DOTS_INSTANCING_ON
+            #pragma instancing_options procedural:InstanceSetup
 
-            #pragma vertex LitGBufferPassVertex
+            #pragma vertex LitGBufferPassVertexAnimated
             #pragma fragment LitGBufferPassFragment
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/LitInput.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/LitGBufferPass.hlsl"
+            #include "/Passes/LitGBufferPass.hlsl"
             ENDHLSL
         }
 
@@ -245,9 +244,6 @@ Shader "Universal Render Pipeline/Instanced Animation/Lit"
             HLSLPROGRAM
             #pragma target 4.5
 
-            #pragma vertex DepthOnlyVertex
-            #pragma fragment DepthOnlyFragment
-
             // -------------------------------------
             // Material Keywords
             #pragma shader_feature_local_fragment _ALPHATEST_ON
@@ -257,9 +253,13 @@ Shader "Universal Render Pipeline/Instanced Animation/Lit"
             // GPU Instancing
             #pragma multi_compile_instancing
             #pragma multi_compile _ DOTS_INSTANCING_ON
+            #pragma instancing_options procedural:InstanceSetup
+
+            #pragma vertex DepthOnlyVertexAnimated
+            #pragma fragment DepthOnlyFragment
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/LitInput.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/DepthOnlyPass.hlsl"
+            #include "/Passes/DepthOnlyPass.hlsl"
             ENDHLSL
         }
 
@@ -277,9 +277,6 @@ Shader "Universal Render Pipeline/Instanced Animation/Lit"
             HLSLPROGRAM
             #pragma target 4.5
 
-            #pragma vertex DepthNormalsVertex
-            #pragma fragment DepthNormalsFragment
-
             // -------------------------------------
             // Material Keywords
             #pragma shader_feature_local _NORMALMAP
@@ -290,9 +287,13 @@ Shader "Universal Render Pipeline/Instanced Animation/Lit"
             // GPU Instancing
             #pragma multi_compile_instancing
             #pragma multi_compile _ DOTS_INSTANCING_ON
+            #pragma instancing_options procedural:InstanceSetup
+
+            #pragma vertex DepthNormalsVertexAnimated
+            #pragma fragment DepthNormalsFragment
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/LitInput.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/DepthNormalsPass.hlsl"
+            #include "/Passes/DepthNormalsPass.hlsl"
             ENDHLSL
         }
     }

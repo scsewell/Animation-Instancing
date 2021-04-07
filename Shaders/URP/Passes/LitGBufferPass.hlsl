@@ -1,7 +1,7 @@
-﻿#ifndef ANIMATION_INSTANCING_LIT_FORWARD_PASS_INCLUDED
-#define ANIMATION_INSTANCING_LIT_FORWARD_PASS_INCLUDED
+﻿#ifndef ANIMATION_INSTANCING_LIT_GBUFFER_PASS_INCLUDED
+#define ANIMATION_INSTANCING_LIT_GBUFFER_PASS_INCLUDED
 
-#include "Packages/com.unity.render-pipelines.universal/Shaders/LitForwardPass.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/Shaders/LitGBufferPass.hlsl"
 #include "../../AnimationInstancing.hlsl"
 
 struct AttributesAnimated
@@ -16,7 +16,7 @@ struct AttributesAnimated
     UNITY_VERTEX_INPUT_INSTANCE_ID
 };
 
-Varyings LitPassVertexAnimated(AttributesAnimated input)
+Varyings LitGBufferPassVertexAnimated(AttributesAnimated input)
 {
     Varyings output = (Varyings)0;
 
@@ -27,7 +27,7 @@ Varyings LitPassVertexAnimated(AttributesAnimated input)
     SkinningData skinningData = GetSkinningData(input.positionOS, input.uv2, input.uv3);
     BonePose pose = GetBonePose(skinningData);
     Skin(pose, skinningData, input.positionOS, input.normalOS, input.tangentOS);
-
+    
     VertexPositionInputs vertexInput = GetVertexPositionInputs(input.positionOS.xyz);
 
     // normalWS and tangentWS already normalize.
@@ -37,7 +37,6 @@ Varyings LitPassVertexAnimated(AttributesAnimated input)
 
     half3 viewDirWS = GetWorldSpaceViewDir(vertexInput.positionWS);
     half3 vertexLight = VertexLighting(vertexInput.positionWS, normalInput.normalWS);
-    half fogFactor = ComputeFogFactor(vertexInput.positionCS.z);
 
     output.uv = TRANSFORM_TEX(input.texcoord, _BaseMap);
 
@@ -60,7 +59,7 @@ Varyings LitPassVertexAnimated(AttributesAnimated input)
     OUTPUT_LIGHTMAP_UV(input.lightmapUV, unity_LightmapST, output.lightmapUV);
     OUTPUT_SH(output.normalWS.xyz, output.vertexSH);
 
-    output.fogFactorAndVertexLight = half4(fogFactor, vertexLight);
+    output.vertexLighting = vertexLight;
 
 #if defined(REQUIRES_WORLD_SPACE_POS_INTERPOLATOR)
     output.positionWS = vertexInput.positionWS;
@@ -75,5 +74,4 @@ Varyings LitPassVertexAnimated(AttributesAnimated input)
     return output;
 }
 
-#endif // ANIMATION_INSTANCING_LIT_FORWARD_PASS_INCLUDED
-
+#endif // ANIMATION_INSTANCING_LIT_GBUFFER_PASS_INCLUDED
