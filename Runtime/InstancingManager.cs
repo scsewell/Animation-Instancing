@@ -1293,7 +1293,11 @@ namespace AnimationInstancing
 
             s_cullingCmdBuffer.Clear();
 
-            var bounds = new Bounds(Vector3.zero, float.MaxValue * Vector3.one);
+            var bounds = new Bounds
+            {
+                center = cam.transform.position,
+                extents = Vector3.one * cam.farClipPlane,
+            };
             
             var props = new MaterialPropertyBlock();
             props.SetBuffer(Properties.Main._DrawArgs, s_drawArgsBuffer);
@@ -1318,7 +1322,10 @@ namespace AnimationInstancing
                     s_drawArgsBuffer,
                     i * DrawArgs.k_size,
                     props,
-                    ShadowCastingMode.Off
+                    ShadowCastingMode.On,
+                    true,
+                    0,
+                    cam
                 );
             }
 

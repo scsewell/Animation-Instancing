@@ -5,7 +5,7 @@ using UnityEngine;
 namespace AnimationInstancing
 {
     /// <summary>
-    /// A struct describing the lod properties for a sub mesh.
+    /// A struct describing the properties of single level of detail (lod).
     /// </summary>
     public readonly struct LodInfo
     {
