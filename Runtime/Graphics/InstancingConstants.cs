@@ -92,6 +92,7 @@ namespace AnimationInstancing
 
             public static readonly int _InstanceCounts = Shader.PropertyToID("_InstanceCounts");
             public static readonly int _InstanceTypeData = Shader.PropertyToID("_InstanceTypeData");
+            public static readonly int _DrawArgsSrc = Shader.PropertyToID("_DrawArgsSrc");
             public static readonly int _DrawArgs = Shader.PropertyToID("_DrawArgs");
         }
 

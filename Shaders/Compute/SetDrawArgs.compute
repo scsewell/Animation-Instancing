@@ -9,6 +9,7 @@
 
 StructuredBuffer<uint> _InstanceCounts;
 StructuredBuffer<uint> _InstanceTypeData;
+StructuredBuffer<DrawArgs> _DrawArgsSrc;
 
 RWStructuredBuffer<DrawArgs> _DrawArgs;
 
@@ -53,10 +54,13 @@ void CSMain(uint tID : SV_DispatchThreadID)
             uint drawArgBaseIndex = instanceTypeData & 0xffff; 
             uint drawCallCount = instanceTypeData >> 16;
             
-            for (uint drawArg = drawArgBaseIndex; drawArg < drawArgBaseIndex + drawCallCount; drawArg++)
+            for (uint argsIndex = drawArgBaseIndex; argsIndex < drawArgBaseIndex + drawCallCount; argsIndex++)
             {
-                _DrawArgs[drawArg].instanceCount = instanceCount;
-                _DrawArgs[drawArg].instanceStart = instanceStart;
+				DrawArgs drawArgs = _DrawArgsSrc[argsIndex];
+				drawArgs.instanceCount = instanceCount;
+				drawArgs.instanceStart = instanceStart;
+
+                _DrawArgs[argsIndex] = drawArgs;
             }
         }
     }
