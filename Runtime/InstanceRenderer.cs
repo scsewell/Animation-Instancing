@@ -1,6 +1,4 @@
-﻿using System;
-
-using Unity.Collections;
+﻿using Unity.Collections;
 using Unity.Jobs;
 using Unity.Burst;
 using Unity.Mathematics;
@@ -9,6 +7,9 @@ using UnityEngine;
 
 namespace AnimationInstancing
 {
+    /// <summary>
+    /// A component that can be used to render animated instances.
+    /// </summary>
     public class InstanceRenderer : MonoBehaviour, IInstanceProvider
     {
         [SerializeField]
@@ -25,10 +26,35 @@ namespace AnimationInstancing
         NativeArray<Instance> m_instances;
         NativeArray<float> m_animationLengths;
         JobHandle m_configureInstancesJob;
+        bool m_reinitialize;
         
         /// <inheritdoc />
         public DirtyFlags DirtyFlags { get; private set; } = DirtyFlags.All;
 
+        /// <summary>
+        /// The number of instances to render.
+        /// </summary>
+        public int InstanceCount
+        {
+            get => m_instanceCount;
+            set
+            {
+                var instanceCount = Mathf.Max(value, 0);
+                
+                if (m_instanceCount != instanceCount)
+                {
+                    m_instanceCount = instanceCount;
+                    EnsureInstanceBufferCapacity(m_instanceCount);
+                    DirtyFlags |= DirtyFlags.InstanceCount;
+                }   
+            }
+        }
+
+        void OnValidate()
+        {
+            m_reinitialize = true;
+        }
+        
         void OnEnable()
         {
             InstancingManager.RegisterInstanceProvider(this);
@@ -65,8 +91,8 @@ namespace AnimationInstancing
                     subMeshIndex = i,
                 };
             }
-            
-            m_instances = new NativeArray<Instance>(m_instanceCount, Allocator.Persistent);
+
+            EnsureInstanceBufferCapacity(m_instanceCount);
 
             m_animationLengths = new NativeArray<float>(m_animationAsset.AnimationSet.Animations.Length, Allocator.Persistent);
             for (var i = 0; i < m_animationLengths.Length; i++)
@@ -90,42 +116,79 @@ namespace AnimationInstancing
                 InstancingManager.DeregisterMaterial(m_materialHandles[i]);
             }
             
-            Dispose(ref m_materialHandles);
-            Dispose(ref m_subMeshes);
-            Dispose(ref m_instances);
-            Dispose(ref m_animationLengths);
-        }
-
-        void Dispose<T>(ref NativeArray<T> array) where T : struct
-        {
-            if (array.IsCreated)
-            {
-                array.Dispose();
-                array = default;
-            }
+            DisposeUtils.Dispose(ref m_materialHandles);
+            DisposeUtils.Dispose(ref m_subMeshes);
+            DisposeUtils.Dispose(ref m_instances);
+            DisposeUtils.Dispose(ref m_animationLengths);
         }
 
         void Update()
         {
+            if (m_reinitialize)
+            {
+                Deinit();
+                Init();
+
+                m_reinitialize = false;
+            }
+            
             var configureInstancesJob = new ConfigureInstancesJob
             {
                 animationLengths = m_animationLengths,
+                instanceCount = m_instanceCount,
                 basePosition = transform.position,
                 time = Time.time,
                 instances = m_instances,
             };
             
-            m_configureInstancesJob = configureInstancesJob.Schedule(m_instances.Length, 64);
+            m_configureInstancesJob = configureInstancesJob.Schedule(m_instanceCount, 64);
             
             DirtyFlags |= DirtyFlags.PerInstanceData;
         }
         
+        /// <inheritdoc />
+        public void GetState(out RenderState state, out NativeSlice<SubMesh> subMeshes, out NativeSlice<Instance> instances)
+        {
+            m_configureInstancesJob.Complete();
+            m_configureInstancesJob = default;
+
+            state = new RenderState
+            {
+                mesh = m_meshHandle,
+                lods = m_animationAsset.Meshes[0].Lods,
+                animationSet = m_animationSetHandle,
+            };
+            subMeshes = m_subMeshes;
+            instances = m_instances.Slice(0, m_instanceCount);
+        }
+
+        /// <inheritdoc />
+        public void ClearDirtyFlags()
+        {
+            DirtyFlags = DirtyFlags.None;
+        }
+        
+        void EnsureInstanceBufferCapacity(int capacity)
+        {
+            if (!m_instances.IsCreated || m_instances.Length < capacity)
+            {
+                DisposeUtils.Dispose(ref m_instances);
+            
+                m_instances = new NativeArray<Instance>(
+                    capacity,
+                    Allocator.Persistent,
+                    NativeArrayOptions.UninitializedMemory
+                );
+            }
+        }
+
         [BurstCompile(DisableSafetyChecks = true)]
         struct ConfigureInstancesJob : IJobParallelFor
         {
             [ReadOnly, NoAlias]
             public NativeArray<float> animationLengths;
-            
+
+            public int instanceCount;
             public float3 basePosition;
             public float time;
 
@@ -134,7 +197,7 @@ namespace AnimationInstancing
             
             public void Execute(int i)
             {
-                var edgeLength = Mathf.CeilToInt(Mathf.Sqrt(instances.Length));
+                var edgeLength = Mathf.CeilToInt(Mathf.Sqrt(instanceCount));
                 var pos = new float3(-Mathf.Repeat(i, edgeLength), 0, -Mathf.Floor(i / edgeLength));
                 var rot = Quaternion.Euler(0, i + time * 10, 0);
                 var animationIndex = i % animationLengths.Length;
@@ -151,28 +214,6 @@ namespace AnimationInstancing
                     animationTime = Mathf.Repeat((time + math.length(pos)) / animationLengths[animationIndex], 1f),
                 };
             }
-        }
-
-        /// <inheritdoc />
-        public void GetState(out RenderState state, out NativeSlice<SubMesh> subMeshes, out NativeSlice<Instance> instances)
-        {
-            m_configureInstancesJob.Complete();
-            m_configureInstancesJob = default;
-
-            state = new RenderState
-            {
-                mesh = m_meshHandle,
-                lods = m_animationAsset.Meshes[0].Lods,
-                animationSet = m_animationSetHandle,
-            };
-            subMeshes = m_subMeshes;
-            instances = m_instances;
-        }
-
-        /// <inheritdoc />
-        public void ClearDirtyFlags()
-        {
-            DirtyFlags = DirtyFlags.None;
         }
     }
 }

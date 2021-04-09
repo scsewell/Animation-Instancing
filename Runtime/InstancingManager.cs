@@ -139,13 +139,13 @@ namespace AnimationInstancing
                 };
             }
             
-            public void Render(Camera cam, bool shadowsEnabled)
+            public void Render(Camera cam, ref PipelineInfo pipeline)
             {
                 Profiler.BeginSample($"{nameof(Renderer)}.{nameof(Render)}");
 
                 m_mainBuffers.UpdateBuffers();
                 
-                if (shadowsEnabled)
+                if (pipeline.shadowsEnabled)
                 {
                     m_shadowBuffers.UpdateBuffers();
                 }
@@ -154,18 +154,20 @@ namespace AnimationInstancing
                     m_shadowBuffers.Dispose();
                 }
 
-                Cull(cam, shadowsEnabled);
+                Cull(cam, ref pipeline);
                 
                 Graphics.ExecuteCommandBuffer(m_cullingCmdBuffer);
 
-                Draw(cam, shadowsEnabled);
+                Draw(cam, ref pipeline);
                 
                 Profiler.EndSample();
             }
 
-            void Cull(Camera cam, bool shadowsEnabled)
+            void Cull(Camera cam, ref PipelineInfo pipeline)
             {
                 Profiler.BeginSample($"{nameof(Renderer)}.{nameof(Cull)}");
+                
+                m_cullingCmdBuffer.Clear();
                 
                 // update constant buffer
                 var vFov = cam.fieldOfView;
@@ -178,12 +180,10 @@ namespace AnimationInstancing
                     _CameraPosition = cam.transform.position,
                     _LodBias = QualitySettings.lodBias,
                     _LodScale = 1f / (2f * math.tan(math.radians(fov / 2f))),
+                    _ShadowDistance = pipeline.shadowDistance,
                     _InstanceCount = s_instanceCount,
                     _NumInstanceCounts = (uint)s_numInstanceCounts,
                 };
-
-                // build the culling command buffer
-                m_cullingCmdBuffer.Clear();
                 
                 m_cullingCmdBuffer.SetBufferData(
                     m_cullingConstantBuffer,
@@ -192,24 +192,107 @@ namespace AnimationInstancing
                     0, 
                     m_cullingProperties.Length
                 );
+
+                // initialize buffers
+                m_cullingCmdBuffer.SetComputeConstantBufferParam(
+                    s_cullShader,
+                    Properties.Culling._ConstantBuffer,
+                    m_cullingConstantBuffer,
+                    0,
+                    CullingPropertyBuffer.k_size
+                );
+                m_cullingCmdBuffer.SetComputeBufferParam(
+                    s_cullShader,
+                    s_cullResetCountsKernel.kernelID,
+                    Properties.Culling._InstanceCountsMain,
+                    m_mainBuffers.instanceCountsBuffer
+                );
+                if (pipeline.shadowsEnabled)
+                {
+                    m_cullingCmdBuffer.SetComputeBufferParam(
+                        s_cullShader,
+                        s_cullResetCountsKernel.kernelID,
+                        Properties.Culling._InstanceCountsShadow,
+                        m_shadowBuffers.instanceCountsBuffer
+                    );
+                }
                 
-                m_mainBuffers.Cull(m_cullingCmdBuffer, m_cullingConstantBuffer);
+                m_cullingCmdBuffer.DispatchCompute(
+                    s_cullShader,
+                    s_cullResetCountsKernel.kernelID, 
+                    s_cullResetCountsThreadGroupCount, 1, 1
+                );
                 
-                if (shadowsEnabled)
+                // culling and lod selection
+                m_cullingCmdBuffer.SetComputeBufferParam(
+                    s_cullShader,
+                    s_cullKernel.kernelID,
+                    Properties.Culling._LodData,
+                    s_lodDataBuffer
+                );
+                m_cullingCmdBuffer.SetComputeBufferParam(
+                    s_cullShader,
+                    s_cullKernel.kernelID,
+                    Properties.Culling._AnimationData,
+                    s_animationDataBuffer
+                );
+                m_cullingCmdBuffer.SetComputeBufferParam(
+                    s_cullShader,
+                    s_cullKernel.kernelID,
+                    Properties.Culling._InstanceData,
+                    s_instanceDataBuffer
+                );
+                m_cullingCmdBuffer.SetComputeBufferParam(
+                    s_cullShader,
+                    s_cullKernel.kernelID,
+                    Properties.Culling._InstanceCountsMain,
+                    m_mainBuffers.instanceCountsBuffer
+                );
+                m_cullingCmdBuffer.SetComputeBufferParam(
+                    s_cullShader,
+                    s_cullKernel.kernelID,
+                    Properties.Culling._SortKeysMain,
+                    m_mainBuffers.sortKeysInBuffer
+                );
+                if (pipeline.shadowsEnabled)
+                {
+                    m_cullingCmdBuffer.SetComputeBufferParam(
+                        s_cullShader,
+                        s_cullKernel.kernelID,
+                        Properties.Culling._InstanceCountsShadow,
+                        m_shadowBuffers.instanceCountsBuffer
+                    );
+                    m_cullingCmdBuffer.SetComputeBufferParam(
+                        s_cullShader,
+                        s_cullKernel.kernelID,
+                        Properties.Culling._SortKeysShadow,
+                        m_shadowBuffers.sortKeysInBuffer
+                    );
+                }
+
+                m_cullingCmdBuffer.DispatchCompute(
+                    s_cullShader,
+                    s_cullKernel.kernelID, 
+                    s_cullThreadGroupCount, 1, 1
+                );
+                
+                if (pipeline.shadowsEnabled)
                 {
                     m_shadowBuffers.Cull(m_cullingCmdBuffer, m_cullingConstantBuffer);
                 }
 
+                m_mainBuffers.Cull(m_cullingCmdBuffer, m_cullingConstantBuffer);
+                
                 Profiler.EndSample();
             }
 
-            void Draw(Camera cam, bool shadowsEnabled)
+            void Draw(Camera cam, ref PipelineInfo pipeline)
             {
                 Profiler.BeginSample($"{nameof(Renderer)}.{nameof(Draw)}");
                 
                 m_mainBuffers.Draw(cam, false);
 
-                if (shadowsEnabled)
+                if (pipeline.shadowsEnabled)
                 {
                     m_shadowBuffers.Draw(cam, true);
                 }
@@ -241,6 +324,9 @@ namespace AnimationInstancing
             ComputeBuffer m_drawArgsBuffer;
             bool m_isCreated;
 
+            public ComputeBuffer instanceCountsBuffer => m_instanceCountsBuffer;
+            public ComputeBuffer sortKeysInBuffer => m_sortKeysInBuffer;
+            
             public void UpdateBuffers()
             {
                 Profiler.BeginSample($"{nameof(RenderPassBufferSet)}.{nameof(UpdateBuffers)}");
@@ -332,65 +418,6 @@ namespace AnimationInstancing
             {
                 Profiler.BeginSample($"{nameof(RenderPassBufferSet)}.{nameof(Cull)}");
 
-                // initialize buffers
-                cmd.SetComputeConstantBufferParam(
-                    s_cullShader,
-                    Properties.Culling._ConstantBuffer,
-                    cullingConstantBuffer,
-                    0,
-                    CullingPropertyBuffer.k_size
-                );
-                cmd.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullResetCountsKernel.kernelID,
-                    Properties.Culling._InstanceCounts,
-                    m_instanceCountsBuffer
-                );
-                
-                cmd.DispatchCompute(
-                    s_cullShader,
-                    s_cullResetCountsKernel.kernelID, 
-                    s_cullResetCountsThreadGroupCount, 1, 1
-                );
-                
-                // culling and lod selection
-                cmd.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._LodData,
-                    s_lodDataBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._AnimationData,
-                    s_animationDataBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._InstanceData,
-                    s_instanceDataBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._InstanceCounts,
-                    m_instanceCountsBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._SortKeys,
-                    m_sortKeysInBuffer
-                );
-                
-                cmd.DispatchCompute(
-                    s_cullShader,
-                    s_cullKernel.kernelID, 
-                    s_cullThreadGroupCount, 1, 1
-                );
-                
                 // sort
                 cmd.SetComputeConstantBufferParam(
                     s_sortShader,
@@ -709,7 +736,7 @@ namespace AnimationInstancing
         /// <summary>
         /// Is the instance renderer enabled.
         /// </summary>
-        public bool Enabled => s_enabled;
+        public static bool Enabled => s_enabled;
 
         static InstancingManager()
         {
@@ -1061,9 +1088,17 @@ namespace AnimationInstancing
         static void Render(Camera[] cameras)
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Render)}");
+
+            PipelineInfo.GetInfoForCurrentPipeline(out var pipeline);
             
-            // -----------------------------TODO get this automatically or something
-            var shadowsEnabled = true;
+            if (pipeline.shadowsEnabled)
+            {
+                s_cullShader.EnableKeyword(Keywords.Culling.SHADOWS_ENABLED);
+            }
+            else
+            {
+                s_cullShader.DisableKeyword(Keywords.Culling.SHADOWS_ENABLED);
+            }
 
             for (var i = 0; i < cameras.Length; i++)
             {
@@ -1080,7 +1115,7 @@ namespace AnimationInstancing
                     s_renderers.Add(renderer);
                 }
 
-                renderer.Render(cam, shadowsEnabled);
+                renderer.Render(cam, ref pipeline);
             }
             
             // dispose unused resources

@@ -60,8 +60,10 @@ namespace AnimationInstancing
             public static readonly int _LodData = Shader.PropertyToID("_LodData");
             public static readonly int _AnimationData = Shader.PropertyToID("_AnimationData");
             public static readonly int _InstanceData = Shader.PropertyToID("_InstanceData");
-            public static readonly int _InstanceCounts = Shader.PropertyToID("_InstanceCounts");
-            public static readonly int _SortKeys = Shader.PropertyToID("_SortKeys");
+            public static readonly int _InstanceCountsMain = Shader.PropertyToID("_InstanceCountsMain");
+            public static readonly int _SortKeysMain = Shader.PropertyToID("_SortKeysMain");
+            public static readonly int _InstanceCountsShadow = Shader.PropertyToID("_InstanceCountsShadow");
+            public static readonly int _SortKeysShadow = Shader.PropertyToID("_SortKeysShadow");
         }
         
         public static class Sort
@@ -103,6 +105,17 @@ namespace AnimationInstancing
             public static readonly int _DrawArgs = Shader.PropertyToID("_DrawArgs");
             public static readonly int _AnimationData = Shader.PropertyToID("_AnimationData");
             public static readonly int _InstanceProperties = Shader.PropertyToID("_InstanceProperties");
+        }
+    }
+
+    /// <summary>
+    /// A class containing shader keywords.
+    /// </summary>
+    static class Keywords
+    {
+        public static class Culling
+        {
+            public const string SHADOWS_ENABLED = "SHADOWS_ENABLED";
         }
     }
 

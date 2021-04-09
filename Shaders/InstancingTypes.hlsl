@@ -70,6 +70,7 @@ float4x4 _ViewProj;
 float3 _CameraPosition;
 float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
 float _LodBias;
+float _ShadowDistance;
 int _InstanceCount;
 uint _NumInstanceCounts;
 CBUFFER_END

@@ -3,20 +3,26 @@
 
 #pragma kernel ResetCounts
 #pragma kernel Cull
+#pragma multi_compile _ SHADOWS_ENABLED
 
 StructuredBuffer<LodData> _LodData;
 StructuredBuffer<AnimationData> _AnimationData;
 StructuredBuffer<InstanceData> _InstanceData;
 
-RWStructuredBuffer<uint> _InstanceCounts;
-RWStructuredBuffer<uint> _SortKeys;
+RWStructuredBuffer<uint> _InstanceCountsMain;
+RWStructuredBuffer<uint> _SortKeysMain;
+RWStructuredBuffer<uint> _InstanceCountsShadow;
+RWStructuredBuffer<uint> _SortKeysShadow;
 
 [numthreads(64, 1, 1)]
 void ResetCounts(uint tID : SV_DispatchThreadID)
 {
     if (tID < _NumInstanceCounts)
     {
-		_InstanceCounts[tID] = 0;
+		_InstanceCountsMain[tID] = 0;
+#if SHADOWS_ENABLED
+		_InstanceCountsShadow[tID] = 0;
+#endif
     }
 }
 
@@ -81,7 +87,8 @@ void Cull(uint tID : SV_DispatchThreadID)
     bool isCameraOutsideBounds = IsOutsideBounds(_CameraPosition, worldCenter, scaledExtents);
 
     // check if the instance is culled based on LOD
-    float lodDistance = distance(_CameraPosition, worldCenter) / _LodBias;
+    float cameraDistance = distance(_CameraPosition, worldCenter);
+    float lodDistance = cameraDistance / _LodBias;
     float maxExtent = max(max(scaledExtents.x, scaledExtents.y), scaledExtents.z);
     float lodFactor = _LodScale * maxExtent;
     float cullDistance = lodFactor / lod.screenHeights[lod.lodCount - 1];
@@ -104,9 +111,23 @@ void Cull(uint tID : SV_DispatchThreadID)
     uint countIndex = instance.countBaseIndex + selectedLod;
     uint sortingKey = CreateSortingKey(countIndex, tID);
 
+    // check if this instance should cast shadows
+#if SHADOWS_ENABLED
+    bool isShadowCaster = cameraDistance < _ShadowDistance;
+
+    // reduce the lod level used for the shadowing
+    uint shadowCountIndex = instance.countBaseIndex + min(selectedLod + 5, lod.lodCount - 1);
+    uint shadowSortingKey = CreateSortingKey(shadowCountIndex, tID);
+#endif
+
     if (tID < (uint)_InstanceCount)
     {
-        InterlockedAdd(_InstanceCounts[countIndex], isVisible);
-        _SortKeys[tID] = isVisible ? sortingKey : ANIMATION_INSTANCING_NULL_SORT_KEY;
+        InterlockedAdd(_InstanceCountsMain[countIndex], isVisible);
+        _SortKeysMain[tID] = isVisible ? sortingKey : ANIMATION_INSTANCING_NULL_SORT_KEY;
+
+#if SHADOWS_ENABLED
+        InterlockedAdd(_InstanceCountsShadow[shadowCountIndex], isShadowCaster);
+        _SortKeysShadow[tID] = isShadowCaster ? sortingKey : ANIMATION_INSTANCING_NULL_SORT_KEY;
+#endif
     }
 }
