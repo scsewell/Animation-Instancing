@@ -295,7 +295,10 @@ namespace AnimationInstancing
 
             for (var i = 0; i < lods.Length; i++)
             {
-                lods[i] = new LodInfo(lodGroup[i].screenRelativeTransitionHeight);
+                lods[i] = new LodInfo(
+                    lodGroup[i].screenRelativeTransitionHeight,
+                    m_config.shadowLodOffset
+                );
             }
 
             return lods;

@@ -9,12 +9,47 @@ using UnityEngine.Rendering;
 namespace AnimationInstancing
 {
     /// <summary>
-    ///     A window used to bake animation data for instanced meshes.
+    /// A window used to bake animation data for instanced meshes.
     /// </summary>
     class InstancedAnimationWindow : EditorWindow
     {
         const string k_assetsPath = "Assets/";
 
+        static class Contents
+        {
+            public static readonly float spacing = 21f;
+
+            public static readonly GUIContent animator = new GUIContent("Animator", "The animator to bake.");
+
+            public static readonly GUILayoutOption mappingWidth = GUILayout.Width(150f);
+            public static readonly GUIContent animation = new GUIContent("Clip");
+            public static readonly GUIContent frameRate = new GUIContent("Frame Rate");
+
+            public static readonly GUIContent vertexCompression = new GUIContent(
+                "Compression",
+                "Reduces the size of the mesh on disk and GPU memory by compressing the vertex attributes. " +
+                "This can also improve rendering speed in some cases, since the compressed vertex sizes are optimized for cache lines."
+            );
+            public static readonly GUIContent shadowLodOffset = new GUIContent(
+                "Shadow Lod Offset",
+                "The number of lod levels to reduce by when rendering shadows for a lod mesh. " +
+                "This enables using a higher resolution mesh for the main visuals, rendering shadows faster using a less detailed mesh. " +
+                "A value of zero has the usual behaviour where the lod will render its own mesh for the shadow."
+            );
+
+            public static readonly GUIContent directory = new GUIContent(
+                "Directory",
+                "The directory to save the baked data in."
+            );
+
+            public static readonly GUILayoutOption directoryMinWidth = GUILayout.MinWidth(0f);
+            public static readonly GUIContent directorySelector = new GUIContent("\u2299", "Select a directory.");
+            public static readonly GUILayoutOption directorySelectorWidth = GUILayout.Width(22f);
+
+            public static readonly GUIContent bakeButton = new GUIContent("Bake");
+            public static readonly GUILayoutOption[] bakeButtonSize = {GUILayout.Width(150f), GUILayout.Height(25f)};
+        }
+        
         [SerializeField]
         Vector2 m_scroll = Vector2.zero;
 
@@ -25,10 +60,10 @@ namespace AnimationInstancing
         SerializableDictionary<AnimationClip, float> m_frameRates;
 
         [SerializeField]
-        SerializableDictionary<Material, Material> m_materialRemap;
+        VertexCompression m_vertexCompression = VertexCompression.High;
 
         [SerializeField]
-        VertexCompression m_vertexCompression = VertexCompression.High;
+        int m_shadowLodOffset = 2;
 
         [SerializeField]
         string m_path = k_assetsPath;
@@ -54,7 +89,6 @@ namespace AnimationInstancing
                 // bake configuration
                 Input();
                 AnimationConfig();
-                MaterialRemapping();
                 MeshConfig();
                 Output();
 
@@ -169,63 +203,6 @@ namespace AnimationInstancing
             EditorGUILayout.Space(Contents.spacing);
         }
 
-        void MaterialRemapping()
-        {
-            if (m_animator == null)
-            {
-                return;
-            }
-
-            var originalMaterials = GetOriginalMaterials();
-
-            EditorGUILayout.LabelField("Materials", EditorStyles.boldLabel);
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                EditorGUILayout.LabelField(Contents.originalMaterial, Contents.mappingWidth);
-                EditorGUILayout.LabelField(Contents.instancedMaterial, GUILayout.MinWidth(0f));
-            }
-
-            for (var i = 0; i < originalMaterials.Length; i++)
-            {
-                var originalMat = originalMaterials[i];
-
-                m_materialRemap.TryGetValue(originalMat, out var remappedMat);
-
-                using (new EditorGUILayout.HorizontalScope())
-                using (var change = new EditorGUI.ChangeCheckScope())
-                {
-                    using (new EditorGUI.DisabledGroupScope(true))
-                    {
-                        EditorGUILayout.ObjectField(
-                            GUIContent.none,
-                            originalMat,
-                            typeof(Material),
-                            false,
-                            Contents.mappingWidth
-                        );
-                    }
-
-                    var newMat = EditorGUILayout.ObjectField(
-                        GUIContent.none,
-                        remappedMat,
-                        typeof(Material),
-                        false,
-                        GUILayout.MinWidth(0f)
-                    ) as Material;
-
-                    if (change.changed)
-                    {
-                        Undo.RecordObject(this, "Set Material");
-                        m_materialRemap[originalMat] = newMat;
-                        EditorUtility.SetDirty(this);
-                    }
-                }
-            }
-
-            EditorGUILayout.Space(Contents.spacing);
-        }
-
         void MeshConfig()
         {
             if (m_animator == null)
@@ -237,7 +214,7 @@ namespace AnimationInstancing
 
             using (var change = new EditorGUI.ChangeCheckScope())
             {
-                var compression = (VertexCompression) EditorGUILayout.EnumPopup(
+                var compression = (VertexCompression)EditorGUILayout.EnumPopup(
                     Contents.vertexCompression,
                     m_vertexCompression
                 );
@@ -246,6 +223,23 @@ namespace AnimationInstancing
                 {
                     Undo.RecordObject(this, "Set Vertex Compression");
                     m_vertexCompression = compression;
+                    EditorUtility.SetDirty(this);
+                }
+            }
+            
+            using (var change = new EditorGUI.ChangeCheckScope())
+            {
+                var shadowLodOffset = EditorGUILayout.IntSlider(
+                    Contents.shadowLodOffset,
+                    m_shadowLodOffset,
+                    0,
+                    Constants.k_maxLodCount
+                );
+
+                if (change.changed)
+                {
+                    Undo.RecordObject(this, "Set Shadow Lod Offset");
+                    m_shadowLodOffset = shadowLodOffset;
                     EditorUtility.SetDirty(this);
                 }
             }
@@ -308,12 +302,12 @@ namespace AnimationInstancing
             var config = new BakeConfig
             {
                 animator = m_animator,
-                vertexMode = m_vertexCompression,
                 lod = m_animator.GetComponentInChildren<LODGroup>(true),
                 animations = controller.animationClips,
                 frameRates = m_frameRates,
                 renderers = m_animator.GetComponentsInChildren<SkinnedMeshRenderer>(true),
-                materialRemap = m_materialRemap,
+                vertexMode = m_vertexCompression,
+                shadowLodOffset = m_shadowLodOffset,
             };
 
             var baker = new Baker(config);
@@ -425,26 +419,6 @@ namespace AnimationInstancing
                         }
                     }
                 }
-
-                var originalMaterials = GetOriginalMaterials();
-
-                for (var i = 0; i < originalMaterials.Length; i++)
-                {
-                    var originalMat = originalMaterials[i];
-
-                    if (!m_materialRemap.TryGetValue(originalMat, out var remapped) || remapped == null)
-                    {
-                        if (drawMessages)
-                        {
-                            EditorGUILayout.HelpBox(
-                                $"Material \"{originalMat.name}\" must be remapped. Assign a material with a shader that supports instanced animation.",
-                                MessageType.Warning
-                            );
-                        }
-
-                        canBake = false;
-                    }
-                }
             }
 
             var controller = m_animator.runtimeAnimatorController as AnimatorController;
@@ -480,47 +454,6 @@ namespace AnimationInstancing
             }
 
             return canBake;
-        }
-
-        Material[] GetOriginalMaterials()
-        {
-            return m_animator
-                .GetComponentsInChildren<SkinnedMeshRenderer>(true)
-                .SelectMany(r => r.sharedMaterials)
-                .Where(m => m != null)
-                .Distinct()
-                .ToArray();
-        }
-
-        static class Contents
-        {
-            public static readonly float spacing = 21f;
-
-            public static readonly GUIContent animator = new GUIContent("Animator", "The animator to bake.");
-
-            public static readonly GUILayoutOption mappingWidth = GUILayout.Width(150f);
-            public static readonly GUIContent animation = new GUIContent("Clip");
-            public static readonly GUIContent frameRate = new GUIContent("Frame Rate");
-
-            public static readonly GUIContent originalMaterial = new GUIContent("Original");
-            public static readonly GUIContent instancedMaterial = new GUIContent("Instanced");
-
-            public static readonly GUIContent vertexCompression = new GUIContent(
-                "Compression",
-                "Reduces the size of the mesh in memory."
-            );
-
-            public static readonly GUIContent directory = new GUIContent(
-                "Directory",
-                "The directory to save the baked data in."
-            );
-
-            public static readonly GUILayoutOption directoryMinWidth = GUILayout.MinWidth(0f);
-            public static readonly GUIContent directorySelector = new GUIContent("\u2299", "Select a directory.");
-            public static readonly GUILayoutOption directorySelectorWidth = GUILayout.Width(22f);
-
-            public static readonly GUIContent bakeButton = new GUIContent("Bake");
-            public static readonly GUILayoutOption[] bakeButtonSize = {GUILayout.Width(150f), GUILayout.Height(25f)};
         }
     }
 }

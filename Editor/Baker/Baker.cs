@@ -21,7 +21,7 @@ namespace AnimationInstancing
         public Dictionary<AnimationClip, float> frameRates;
         public SkinnedMeshRenderer[] renderers;
         public VertexCompression vertexMode;
-        public Dictionary<Material, Material> materialRemap;
+        public int shadowLodOffset;
     }
 
     public partial class Baker

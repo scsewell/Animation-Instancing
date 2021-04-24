@@ -109,8 +109,8 @@ namespace AnimationInstancing
 
         class Renderer : IDisposable
         {
-            readonly RenderPassBufferSet m_mainBuffers = new RenderPassBufferSet();
-            readonly RenderPassBufferSet m_shadowBuffers = new RenderPassBufferSet();
+            readonly RenderPassBufferSet m_mainBuffers = new RenderPassBufferSet("Main");
+            readonly RenderPassBufferSet m_shadowBuffers = new RenderPassBufferSet("Shadow");
             
             CommandBuffer m_cullingCmdBuffer;
             ComputeBuffer m_cullingConstantBuffer;
@@ -313,6 +313,7 @@ namespace AnimationInstancing
         
         class RenderPassBufferSet : IDisposable
         {
+            readonly string m_name;
             readonly MaterialPropertyBlock m_propertyBlock = new MaterialPropertyBlock();
             
             ComputeBuffer m_instanceCountsBuffer;
@@ -326,6 +327,11 @@ namespace AnimationInstancing
 
             public ComputeBuffer instanceCountsBuffer => m_instanceCountsBuffer;
             public ComputeBuffer sortKeysInBuffer => m_sortKeysInBuffer;
+
+            public RenderPassBufferSet(string name)
+            {
+                m_name = name;
+            }
             
             public void UpdateBuffers()
             {
@@ -342,7 +348,7 @@ namespace AnimationInstancing
             
                     m_instanceCountsBuffer = new ComputeBuffer(count, sizeof(uint))
                     {
-                        name = $"{nameof(InstancingManager)}_InstanceCounts",
+                        name = $"{nameof(InstancingManager)}_{m_name}_InstanceCounts",
                     };
                 }
                 
@@ -357,15 +363,15 @@ namespace AnimationInstancing
                     
                     m_sortKeysInBuffer = new ComputeBuffer(count, sizeof(uint))
                     {
-                        name = $"{nameof(InstancingManager)}_SortKeysInBuffer",
+                        name = $"{nameof(InstancingManager)}_{m_name}_SortKeysInBuffer",
                     };
                     m_sortKeysOutBuffer = new ComputeBuffer(count, sizeof(uint))
                     {
-                        name = $"{nameof(InstancingManager)}_SortKeysOutBuffer",
+                        name = $"{nameof(InstancingManager)}_{m_name}_SortKeysOutBuffer",
                     };
                     m_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
                     {
-                        name = $"{nameof(InstancingManager)}_{nameof(InstanceProperties)}",
+                        name = $"{nameof(InstancingManager)}_{m_name}_{nameof(InstanceProperties)}",
                     };
                     
                     m_propertyBlock.SetBuffer(Properties.Main._InstanceProperties, m_instancePropertiesBuffer);
@@ -380,7 +386,7 @@ namespace AnimationInstancing
 
                     m_sortScratchBuffer = new ComputeBuffer(count, sizeof(uint))
                     {
-                        name = $"{nameof(InstancingManager)}_SortScratchBuffer",
+                        name = $"{nameof(InstancingManager)}_{m_name}_SortScratchBuffer",
                     };
                 }
                 
@@ -392,7 +398,7 @@ namespace AnimationInstancing
 
                     m_sortReducedScratchBuffer = new ComputeBuffer(count, sizeof(uint))
                     {
-                        name = $"{nameof(InstancingManager)}_SortReducedScratchBuffer",
+                        name = $"{nameof(InstancingManager)}_{m_name}_SortReducedScratchBuffer",
                     };
                 }
                 
@@ -405,7 +411,7 @@ namespace AnimationInstancing
             
                     m_drawArgsBuffer = new ComputeBuffer(count, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
                     {
-                        name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
+                        name = $"{nameof(InstancingManager)}_{m_name}_{nameof(DrawArgs)}",
                     };
                     
                     m_propertyBlock.SetBuffer(Properties.Main._DrawArgs, m_drawArgsBuffer);

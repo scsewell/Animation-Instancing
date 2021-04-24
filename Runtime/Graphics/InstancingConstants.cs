@@ -18,6 +18,11 @@ namespace AnimationInstancing
         public const int k_maxSubMeshCount = 5;
 
         /// <summary>
+        /// The number of bits needed to index a LOD.
+        /// </summary>
+        internal const int k_bitsNeededForLodIndex = 3;
+
+        /// <summary>
         /// The maximum number of instances that can be rendered.
         /// </summary>
         internal const int k_maxInstanceCount = 1 << 20;

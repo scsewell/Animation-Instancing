@@ -33,7 +33,9 @@ namespace AnimationInstancing
         internal uint lodCount;
         [SerializeField]
         fixed float screenHeights[Constants.k_maxLodCount];
-
+        [SerializeField]
+        uint shadowLodIndices;
+        
         /// <summary>
         /// Creates a new <see cref="LodData"/> instance.
         /// </summary>
@@ -45,15 +47,25 @@ namespace AnimationInstancing
             if (count > 0)
             {
                 lodCount = (uint)count;
+                shadowLodIndices = 0;
 
                 for (var i = 0; i < count; i++)
                 {
                     screenHeights[i] = lods[i].ScreenHeight;
+
+                    // pack the index of the lod mesh to use for shadows when rending this lod into a single int
+                    Debug.Assert(Constants.k_bitsNeededForLodIndex * Constants.k_maxLodCount <= 32);
+
+                    var shadowLodIndex = Mathf.Clamp(i + lods[i].ShadowLodOffset, 0, count - 1);
+                    var shift = i * Constants.k_bitsNeededForLodIndex;
+                    
+                    shadowLodIndices |= (uint)shadowLodIndex << shift;
                 }
             }
             else
             {
                 lodCount = 1;
+                shadowLodIndices = 0;
             }
         }
     }

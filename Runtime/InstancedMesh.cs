@@ -15,13 +15,29 @@ namespace AnimationInstancing
         public float ScreenHeight { get; }
 
         /// <summary>
+        /// The number of lod levels to reduce by when rendering shadows for this lod mesh.
+        /// </summary>
+        /// <remarks>
+        /// This setting allows using a higher resolution mesh for the main visuals, while
+        /// rendering shadows faster using a less detailed mesh. A value of zero has the usual
+        /// behaviour where the lod will render its own mesh for the shadow.
+        /// </remarks>
+        public int ShadowLodOffset { get; }
+
+        /// <summary>
         /// Creates a new <see cref="LodInfo"/> instance.
         /// </summary>
         /// <param name="screenSize">
         /// The screen relative height of the mesh above which the lod is active.
         /// Must be in the range [0,1].
         /// </param>
-        public LodInfo(float screenSize)
+        /// <param name="shadowLodOffset">
+        /// The number of lod levels to reduce by when rendering shadows for this lod mesh.
+        /// This setting allows using a higher resolution mesh for the main visuals, while rendering
+        /// shadows faster using a less detailed mesh. A value of zero has the usual behaviour
+        /// where the lod will render its own mesh for the shadow.
+        /// </param>
+        public LodInfo(float screenSize, int shadowLodOffset = 1)
         {
             if (screenSize < 0f || 1f < screenSize)
             {
@@ -29,6 +45,7 @@ namespace AnimationInstancing
             }
 
             ScreenHeight = screenSize;
+            ShadowLodOffset = shadowLodOffset;
         }
     }
 

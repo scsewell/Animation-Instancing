@@ -25,6 +25,7 @@ struct LodData
 {
     uint lodCount;
     float screenHeights[ANIMATION_INSTANCING_MAX_LOD_COUNT];
+    uint shadowLodIndices;
 };
 
 struct DrawArgs

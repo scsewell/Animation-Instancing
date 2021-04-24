@@ -25,7 +25,6 @@ namespace AnimationInstancing
         NativeArray<SubMesh> m_subMeshes;
         NativeArray<Instance> m_instances;
         NativeArray<float> m_animationLengths;
-        JobHandle m_configureInstancesJob;
         bool m_reinitialize;
         
         /// <inheritdoc />
@@ -122,7 +121,7 @@ namespace AnimationInstancing
             DisposeUtils.Dispose(ref m_animationLengths);
         }
 
-        void Update()
+        void LateUpdate()
         {
             if (m_reinitialize)
             {
@@ -141,7 +140,8 @@ namespace AnimationInstancing
                 instances = m_instances,
             };
             
-            m_configureInstancesJob = configureInstancesJob.Schedule(m_instanceCount, 64);
+            var jobHandle = configureInstancesJob.Schedule(m_instanceCount, 64);
+            jobHandle.Complete();
             
             DirtyFlags |= DirtyFlags.PerInstanceData;
         }
@@ -149,9 +149,6 @@ namespace AnimationInstancing
         /// <inheritdoc />
         public void GetState(out RenderState state, out NativeSlice<SubMesh> subMeshes, out NativeSlice<Instance> instances)
         {
-            m_configureInstancesJob.Complete();
-            m_configureInstancesJob = default;
-
             state = new RenderState
             {
                 mesh = m_meshHandle,

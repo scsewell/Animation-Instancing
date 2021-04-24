@@ -3,14 +3,23 @@
 
 #define ANIMATION_INSTANCING_MAX_LOD_COUNT 5
 #define ANIMATION_INSTANCING_MAX_INSTANCE_TYPES (1 << 12)
+#define ANIMATION_INSTANCING_BITS_NEEDED_FOR_LOD_INDEX 3
+#define ANIMATION_INSTANCING_LOD_INDEX_BITS_MASK 0x7
+#define ANIMATION_INSTANCING_MAX_SUB_MESH_COUNT 5
 #define ANIMATION_INSTANCING_NULL_SORT_KEY 0xffffffff
 
 #include "InstancingTypes.hlsl"
 #include "MatrixUtils.hlsl"
 
-uint CreateSortingKey(uint countIndex, uint instanceIndex)
+uint GetShadowLodIndex(LodData lod, uint lodIndex)
 {
-    return (instanceIndex << 12) | (countIndex & 0xfff);
+   uint shift = lodIndex * ANIMATION_INSTANCING_BITS_NEEDED_FOR_LOD_INDEX; 
+   return (lod.shadowLodIndices >> shift) & ANIMATION_INSTANCING_LOD_INDEX_BITS_MASK;
+}
+
+uint CreateSortingKey(uint passIndex, uint countIndex, uint instanceIndex)
+{
+    return (instanceIndex << 12) | ((passIndex & 0x1) << 11)  | (countIndex & 0x7ff);
 }
 
 uint GetInstanceIndexFromSortingKey(uint sortingKey)
