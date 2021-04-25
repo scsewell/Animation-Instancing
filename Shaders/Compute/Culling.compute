@@ -17,9 +17,11 @@ void ResetCounts(uint tID : SV_DispatchThreadID)
 {
     if (tID < _NumInstanceCounts)
     {
-		_InstanceCounts[tID] = 0;
 #if SHADOWS_ENABLED
-		_InstanceCounts[_NumInstanceCounts + tID] = 0;
+		_InstanceCounts[2 * tID] = 0;
+		_InstanceCounts[2 * tID + 1] = 0;
+#else
+		_InstanceCounts[tID] = 0;
 #endif
     }
 }

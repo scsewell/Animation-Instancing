@@ -1034,9 +1034,9 @@ namespace AnimationInstancing
                 var mesh = s_meshHandles.GetInstance(drawCall.mesh);
                 var material = s_materialHandles.GetInstance(drawCall.material);
                 var animationSet = s_animationSetHandles.GetInstance(drawCall.animation);
-                var argsOffset = i * DrawArgs.k_size;
+                var argsIndex = i;
                 
-                s_propertyBlock.SetInt(Properties.Main._DrawArgsOffset, i);
+                s_propertyBlock.SetInt(Properties.Main._DrawArgsOffset, argsIndex);
                 s_propertyBlock.SetTexture(Properties.Main._Animation, animationSet.Texture);
 
                 Graphics.DrawMeshInstancedIndirect(
@@ -1045,7 +1045,7 @@ namespace AnimationInstancing
                     material,
                     bounds,
                     s_drawArgsBuffer,
-                    argsOffset,
+                    argsIndex * DrawArgs.k_size,
                     s_propertyBlock,
                     ShadowCastingMode.Off,
                     true,
@@ -1054,25 +1054,28 @@ namespace AnimationInstancing
                     LightProbeUsage.Off
                 );
 
-                if (s_pipelineInfo.shadowsEnabled)
+                if (!s_pipelineInfo.shadowsEnabled)
                 {
-                    s_propertyBlock.SetInt(Properties.Main._DrawArgsOffset, s_drawArgsCount + i);
-                    
-                    Graphics.DrawMeshInstancedIndirect(
-                        mesh,
-                        drawCall.subMesh,
-                        material,
-                        bounds,
-                        s_drawArgsBuffer,
-                        argsLength + argsOffset,
-                        s_propertyBlock,
-                        ShadowCastingMode.ShadowsOnly,
-                        true,
-                        0,
-                        cam,
-                        LightProbeUsage.Off
-                    );
+                    continue;
                 }
+                
+                argsIndex += s_drawArgsCount;
+                s_propertyBlock.SetInt(Properties.Main._DrawArgsOffset, argsIndex);
+                    
+                Graphics.DrawMeshInstancedIndirect(
+                    mesh,
+                    drawCall.subMesh,
+                    material,
+                    bounds,
+                    s_drawArgsBuffer,
+                    argsIndex * DrawArgs.k_size,
+                    s_propertyBlock,
+                    ShadowCastingMode.ShadowsOnly,
+                    true,
+                    0,
+                    cam,
+                    LightProbeUsage.Off
+                );
             }
 
             Profiler.EndSample();
