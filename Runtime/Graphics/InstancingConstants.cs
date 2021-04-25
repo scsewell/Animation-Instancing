@@ -33,6 +33,11 @@ namespace AnimationInstancing
         internal const int k_maxInstanceTypes = 1 << 11;
 
         /// <summary>
+        /// The maximum number of drawing command that may be issued for each draw call.
+        /// </summary>
+        internal const int k_maxPassCount = 2;
+
+        /// <summary>
         /// The number of bits in the sorting keys to sort, starting from the least significant bit.
         /// </summary>
         internal const int k_sortKeyBits = k_sortBitsPerPass * 3;

@@ -149,7 +149,7 @@ namespace AnimationInstancing
         static ComputeBuffer s_instancePropertiesBuffer;
         static ComputeBuffer s_drawArgsBuffer;
         
-        static int s_lastSortingBufferLength;
+        static int s_lastInstanceBuffersLength;
 
         // thead group sizes
         static int s_cullResetCountsThreadGroupCount;
@@ -574,28 +574,23 @@ namespace AnimationInstancing
         {
             Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateBuffers)}");
 
-            // determine how large the compute buffers need to be
-            var drawArgsBufferLength = s_drawArgsCount;
-            var numInstanceCountsBufferLength = s_numInstanceCounts;
-            var perInstanceBuffersLength = s_instanceCount;
+            var instanceBuffersLength = s_instanceCount;
             
             if (s_pipelineInfo.shadowsEnabled)
             {
-                drawArgsBufferLength *= 2;
-                numInstanceCountsBufferLength *= 2;
-                perInstanceBuffersLength *= 2;
+                instanceBuffersLength *= 2;
             }
             
-            // find how many thread groups we should use for the culling shaders
-            s_compactThreadGroupCount = GetThreadGroupCount(perInstanceBuffersLength, s_compactKernel.threadGroupSizeX);
-
-            // determine the properties of the sorting pass needed for the current instance count
-            if (s_lastSortingBufferLength != perInstanceBuffersLength)
+            if (s_lastInstanceBuffersLength != instanceBuffersLength)
             {
-                s_lastSortingBufferLength = perInstanceBuffersLength;
+                s_lastInstanceBuffersLength = instanceBuffersLength;
                 
+                // find how many thread groups we should use for the culling shaders
+                s_compactThreadGroupCount = GetThreadGroupCount(instanceBuffersLength, s_compactKernel.threadGroupSizeX);
+
+                // determine the properties of the sorting pass needed for the current instance count
                 var blockSize = Constants.k_sortElementsPerThread * s_sortCountKernel.threadGroupSizeX;
-                var numBlocks = GetThreadGroupCount(s_lastSortingBufferLength, blockSize);
+                var numBlocks = GetThreadGroupCount(instanceBuffersLength, blockSize);
                 var numReducedBlocks = GetThreadGroupCount(numBlocks, blockSize);
                 
                 s_sortThreadGroupCount = 800;
@@ -620,7 +615,7 @@ namespace AnimationInstancing
                 // update the sorting constant buffer
                 s_sortingProperties[0] = new SortingPropertyBuffer
                 {
-                    _NumKeys = (uint)s_lastSortingBufferLength,
+                    _NumKeys = (uint)instanceBuffersLength,
                     _NumBlocksPerThreadGroup = blocksPerThreadGroup,
                     _NumThreadGroups = (uint)s_sortThreadGroupCount,
                     _NumThreadGroupsWithAdditionalBlocks = (uint)numThreadGroupsWithAdditionalBlocks,
@@ -654,59 +649,6 @@ namespace AnimationInstancing
                         name = $"{nameof(InstancingManager)}_SortReducedScratchBuffer",
                     };
                 }
-            }
-            
-            // update the per draw arg buffers
-            if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < drawArgsBufferLength)
-            {
-                DisposeUtils.Dispose(ref s_drawArgsBuffer);
-
-                var count = Mathf.NextPowerOfTwo(drawArgsBufferLength);
-        
-                s_drawArgsBuffer = new ComputeBuffer(count, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
-                {
-                    name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
-                };
-                
-                s_propertyBlock.SetBuffer(Properties.Main._DrawArgs, s_drawArgsBuffer);
-            }
-            
-            // update the per instance draw count buffers
-            if (s_instanceCountsBuffer == null || s_instanceCountsBuffer.count < numInstanceCountsBufferLength)
-            {
-                DisposeUtils.Dispose(ref s_instanceCountsBuffer);
-
-                var count = Mathf.NextPowerOfTwo(numInstanceCountsBufferLength);
-        
-                s_instanceCountsBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_InstanceCounts",
-                };
-            }
-            
-            // update the per instance data buffers
-            if (s_instancePropertiesBuffer == null || s_instancePropertiesBuffer.count < perInstanceBuffersLength)
-            {
-                DisposeUtils.Dispose(ref s_sortKeysInBuffer);
-                DisposeUtils.Dispose(ref s_sortKeysOutBuffer);
-                DisposeUtils.Dispose(ref s_instancePropertiesBuffer);
-
-                var count = Mathf.NextPowerOfTwo(perInstanceBuffersLength);
-                
-                s_sortKeysInBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_SortKeysInBuffer",
-                };
-                s_sortKeysOutBuffer = new ComputeBuffer(count, sizeof(uint))
-                {
-                    name = $"{nameof(InstancingManager)}_SortKeysOutBuffer",
-                };
-                s_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
-                {
-                    name = $"{nameof(InstancingManager)}_{nameof(InstanceProperties)}",
-                };
-                
-                s_propertyBlock.SetBuffer(Properties.Main._InstanceProperties, s_instancePropertiesBuffer);
             }
             
             Profiler.EndSample();
@@ -1186,12 +1128,13 @@ namespace AnimationInstancing
                 {
                     name = $"{nameof(InstancingManager)}_{nameof(AnimationData)}",
                 };
+                
+                s_propertyBlock.SetBuffer(Properties.Main._AnimationData, s_animationDataBuffer);
             }
             
             s_animationDataBuffer.SetData(animationData, 0, 0, animationData.Length);
             animationData.Dispose();
 
-            s_propertyBlock.SetBuffer(Properties.Main._AnimationData, s_animationDataBuffer);
             
             Profiler.EndSample();
         }
@@ -1333,7 +1276,24 @@ namespace AnimationInstancing
             s_drawArgsSrcBuffer.SetData(drawArgs, 0, 0, drawCallCount);
             drawArgs.Dispose();
 
-            // update the instance draw count buffer
+            // update the per draw arg buffer
+            var drawArgsBufferLength = Constants.k_maxPassCount * drawCallCount;
+            
+            if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < drawArgsBufferLength)
+            {
+                DisposeUtils.Dispose(ref s_drawArgsBuffer);
+
+                var count = Mathf.NextPowerOfTwo(drawArgsBufferLength);
+        
+                s_drawArgsBuffer = new ComputeBuffer(count, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
+                };
+                
+                s_propertyBlock.SetBuffer(Properties.Main._DrawArgs, s_drawArgsBuffer);
+            }
+            
+            // update the instance draw count buffers
             s_numInstanceCounts = numInstanceCounts;
             s_cullResetCountsThreadGroupCount = GetThreadGroupCount(numInstanceCounts, s_cullResetCountsKernel.threadGroupSizeX);
             
@@ -1350,6 +1310,20 @@ namespace AnimationInstancing
             }
             
             s_instanceTypeDataBuffer.SetData(instanceTypeData, 0, 0, numInstanceCounts);
+
+            var numInstanceCountsBufferLength = Constants.k_maxPassCount * s_numInstanceCounts;
+            
+            if (s_instanceCountsBuffer == null || s_instanceCountsBuffer.count < numInstanceCountsBufferLength)
+            {
+                DisposeUtils.Dispose(ref s_instanceCountsBuffer);
+
+                var count = Mathf.NextPowerOfTwo(numInstanceCountsBufferLength);
+        
+                s_instanceCountsBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_InstanceCounts",
+                };
+            }
 
             // dispose temp collections
             instanceTypeToIndex.Dispose();
@@ -1383,7 +1357,7 @@ namespace AnimationInstancing
             // update the number of threads needed to cull this many instances
             s_cullThreadGroupCount = GetThreadGroupCount(instanceCount, s_cullKernel.threadGroupSizeX);
             
-            // create new buffers if the current ones are too small
+            // update the instance data buffers
             if (!s_instanceData.IsCreated || s_instanceData.Length < instanceCount)
             {
                 DisposeUtils.Dispose(ref s_instanceData);
@@ -1405,6 +1379,32 @@ namespace AnimationInstancing
                 {
                     name = $"{nameof(InstancingManager)}_{nameof(InstanceData)}",
                 };
+            }
+
+            var instanceBuffersLength = Constants.k_maxPassCount * instanceCount;
+            
+            if (s_instancePropertiesBuffer == null || s_instancePropertiesBuffer.count < instanceBuffersLength)
+            {
+                DisposeUtils.Dispose(ref s_sortKeysInBuffer);
+                DisposeUtils.Dispose(ref s_sortKeysOutBuffer);
+                DisposeUtils.Dispose(ref s_instancePropertiesBuffer);
+
+                var count = Mathf.NextPowerOfTwo(instanceBuffersLength);
+                
+                s_sortKeysInBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_SortKeysInBuffer",
+                };
+                s_sortKeysOutBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_SortKeysOutBuffer",
+                };
+                s_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(InstanceProperties)}",
+                };
+                
+                s_propertyBlock.SetBuffer(Properties.Main._InstanceProperties, s_instancePropertiesBuffer);
             }
 
             Profiler.EndSample();
@@ -1632,7 +1632,7 @@ namespace AnimationInstancing
             DisposeUtils.Dispose(ref s_instancePropertiesBuffer);
             DisposeUtils.Dispose(ref s_drawArgsBuffer);
 
-            s_lastSortingBufferLength = 0;
+            s_lastInstanceBuffersLength = 0;
             
             // reset thread group sizes
             s_cullResetCountsThreadGroupCount = 0;
