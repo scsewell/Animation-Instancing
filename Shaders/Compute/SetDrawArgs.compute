@@ -4,8 +4,10 @@
 #include "Scan.hlsl"
 
 #pragma kernel CSMain
+#pragma multi_compile _ SHADOWS_ENABLED
 
 #define THREAD_GROUP_SIZE 1024
+#define ELEMENTS_PER_THREAD 2
 
 StructuredBuffer<uint> _InstanceCounts;
 StructuredBuffer<uint> _InstanceTypeData;
@@ -13,21 +15,22 @@ StructuredBuffer<DrawArgs> _DrawArgsSrc;
 
 RWStructuredBuffer<DrawArgs> _DrawArgs;
 
-// TODO: needs to be 8 (or 4) elements per thread
-groupshared uint gs_Counts[2 * THREAD_GROUP_SIZE];
-groupshared uint gs_Offsets[2 * THREAD_GROUP_SIZE];
+groupshared uint gs_Counts[ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE];
+groupshared uint gs_Offsets[ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE];
 
 [numthreads(THREAD_GROUP_SIZE, 1, 1)]
 void CSMain(uint tID : SV_DispatchThreadID)
 {
+    uint numCounts = _PassCount * _NumInstanceCounts;
+
     // load in the instance count for each instance type
     uint2 indices;
     indices.x = 2 * tID;
     indices.y = 2 * tID + 1;
     
     uint2 values;
-    values.x = indices.x < _NumInstanceCounts ? _InstanceCounts[indices.x] : 0;
-    values.y = indices.y < _NumInstanceCounts ? _InstanceCounts[indices.y] : 0;
+    values.x = indices.x < numCounts ? _InstanceCounts[indices.x] : 0;
+    values.y = indices.y < numCounts ? _InstanceCounts[indices.y] : 0;
 
     gs_Counts[indices.x] = values.x;
     gs_Counts[indices.y] = values.y;
@@ -41,26 +44,38 @@ void CSMain(uint tID : SV_DispatchThreadID)
     GroupMemoryBarrierWithGroupSync();
 
     // write the counts and offsets to the draw args buffer
-    for (uint i = 0; i < 4; i++)
+    UNITY_UNROLL
+    for (uint i = 0; i < ELEMENTS_PER_THREAD; i++)
     {
         uint countIndex = i * THREAD_GROUP_SIZE + tID;
         
         if (countIndex < _NumInstanceCounts)
         {
-            uint instanceCount = gs_Counts[countIndex];
-            uint instanceStart = gs_Offsets[countIndex];
-            
             uint instanceTypeData = _InstanceTypeData[countIndex]; 
             uint drawArgBaseIndex = instanceTypeData & 0xffff; 
             uint drawCallCount = instanceTypeData >> 16;
             
+            uint instanceCount = gs_Counts[countIndex];
+            uint instanceStart = gs_Offsets[countIndex];
+            
+#if SHADOWS_ENABLED
+            uint shadowInstanceCount = gs_Counts[_NumInstanceCounts + countIndex];
+            uint shadowInstanceStart = gs_Offsets[_NumInstanceCounts + countIndex];
+#endif
+            
             for (uint argsIndex = drawArgBaseIndex; argsIndex < drawArgBaseIndex + drawCallCount; argsIndex++)
             {
 				DrawArgs drawArgs = _DrawArgsSrc[argsIndex];
+
 				drawArgs.instanceCount = instanceCount;
 				drawArgs.instanceStart = instanceStart;
-
                 _DrawArgs[argsIndex] = drawArgs;
+
+#if SHADOWS_ENABLED
+				drawArgs.instanceCount = shadowInstanceCount;
+				drawArgs.instanceStart = shadowInstanceStart;
+                _DrawArgs[_DrawArgsPerPass + argsIndex] = drawArgs;
+#endif
             }
         }
     }

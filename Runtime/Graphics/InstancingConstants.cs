@@ -30,7 +30,7 @@ namespace AnimationInstancing
         /// <summary>
         /// The maximum number of unique mesh/sub mesh/material combinations that can be active simultaneously.
         /// </summary>
-        internal const int k_maxInstanceTypes = 1 << 12;
+        internal const int k_maxInstanceTypes = 1 << 11;
 
         /// <summary>
         /// The number of bits in the sorting keys to sort, starting from the least significant bit.
@@ -65,10 +65,8 @@ namespace AnimationInstancing
             public static readonly int _LodData = Shader.PropertyToID("_LodData");
             public static readonly int _AnimationData = Shader.PropertyToID("_AnimationData");
             public static readonly int _InstanceData = Shader.PropertyToID("_InstanceData");
-            public static readonly int _InstanceCountsMain = Shader.PropertyToID("_InstanceCountsMain");
-            public static readonly int _SortKeysMain = Shader.PropertyToID("_SortKeysMain");
-            public static readonly int _InstanceCountsShadow = Shader.PropertyToID("_InstanceCountsShadow");
-            public static readonly int _SortKeysShadow = Shader.PropertyToID("_SortKeysShadow");
+            public static readonly int _InstanceCounts = Shader.PropertyToID("_InstanceCounts");
+            public static readonly int _SortKeys = Shader.PropertyToID("_SortKeys");
         }
         
         public static class Sort

@@ -107,584 +107,7 @@ namespace AnimationInstancing
             public Handle<AnimationSet> animation;
         }
 
-        class Renderer : IDisposable
-        {
-            readonly RenderPassBufferSet m_mainBuffers = new RenderPassBufferSet("Main");
-            readonly RenderPassBufferSet m_shadowBuffers = new RenderPassBufferSet("Shadow");
-            
-            CommandBuffer m_cullingCmdBuffer;
-            ComputeBuffer m_cullingConstantBuffer;
-            NativeArray<CullingPropertyBuffer> m_cullingProperties;
-
-            public Renderer()
-            {
-                m_cullingCmdBuffer = new CommandBuffer
-                {
-                    name = $"{nameof(InstancingManager)}_Culling",
-                };
-                
-                m_cullingProperties = new NativeArray<CullingPropertyBuffer>(
-                    1,
-                    Allocator.Persistent,
-                    NativeArrayOptions.UninitializedMemory
-                );
-
-                m_cullingConstantBuffer = new ComputeBuffer(
-                    m_cullingProperties.Length,
-                    CullingPropertyBuffer.k_size,
-                    ComputeBufferType.Constant
-                )
-                {
-                    name = $"{nameof(InstancingManager)}_{nameof(CullingPropertyBuffer)}",
-                };
-            }
-            
-            public void Render(Camera cam, ref PipelineInfo pipeline)
-            {
-                Profiler.BeginSample($"{nameof(Renderer)}.{nameof(Render)}");
-
-                m_mainBuffers.UpdateBuffers();
-                
-                if (pipeline.shadowsEnabled)
-                {
-                    m_shadowBuffers.UpdateBuffers();
-                }
-                else
-                {
-                    m_shadowBuffers.Dispose();
-                }
-
-                Cull(cam, ref pipeline);
-                
-                Graphics.ExecuteCommandBuffer(m_cullingCmdBuffer);
-
-                Draw(cam, ref pipeline);
-                
-                Profiler.EndSample();
-            }
-
-            void Cull(Camera cam, ref PipelineInfo pipeline)
-            {
-                Profiler.BeginSample($"{nameof(Renderer)}.{nameof(Cull)}");
-                
-                m_cullingCmdBuffer.Clear();
-                
-                // update constant buffer
-                var vFov = cam.fieldOfView;
-                var hFov = Camera.VerticalToHorizontalFieldOfView(vFov, cam.aspect);
-                var fov = math.max(vFov, hFov);
-
-                m_cullingProperties[0] = new CullingPropertyBuffer
-                {
-                    _ViewProj = cam.projectionMatrix * cam.worldToCameraMatrix,
-                    _CameraPosition = cam.transform.position,
-                    _LodBias = QualitySettings.lodBias,
-                    _LodScale = 1f / (2f * math.tan(math.radians(fov / 2f))),
-                    _ShadowDistance = pipeline.shadowDistance,
-                    _InstanceCount = s_instanceCount,
-                    _NumInstanceCounts = (uint)s_numInstanceCounts,
-                };
-                
-                m_cullingCmdBuffer.SetBufferData(
-                    m_cullingConstantBuffer,
-                    m_cullingProperties,
-                    0, 
-                    0, 
-                    m_cullingProperties.Length
-                );
-
-                // initialize buffers
-                m_cullingCmdBuffer.SetComputeConstantBufferParam(
-                    s_cullShader,
-                    Properties.Culling._ConstantBuffer,
-                    m_cullingConstantBuffer,
-                    0,
-                    CullingPropertyBuffer.k_size
-                );
-                m_cullingCmdBuffer.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullResetCountsKernel.kernelID,
-                    Properties.Culling._InstanceCountsMain,
-                    m_mainBuffers.instanceCountsBuffer
-                );
-                if (pipeline.shadowsEnabled)
-                {
-                    m_cullingCmdBuffer.SetComputeBufferParam(
-                        s_cullShader,
-                        s_cullResetCountsKernel.kernelID,
-                        Properties.Culling._InstanceCountsShadow,
-                        m_shadowBuffers.instanceCountsBuffer
-                    );
-                }
-                
-                m_cullingCmdBuffer.DispatchCompute(
-                    s_cullShader,
-                    s_cullResetCountsKernel.kernelID, 
-                    s_cullResetCountsThreadGroupCount, 1, 1
-                );
-                
-                // culling and lod selection
-                m_cullingCmdBuffer.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._LodData,
-                    s_lodDataBuffer
-                );
-                m_cullingCmdBuffer.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._AnimationData,
-                    s_animationDataBuffer
-                );
-                m_cullingCmdBuffer.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._InstanceData,
-                    s_instanceDataBuffer
-                );
-                m_cullingCmdBuffer.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._InstanceCountsMain,
-                    m_mainBuffers.instanceCountsBuffer
-                );
-                m_cullingCmdBuffer.SetComputeBufferParam(
-                    s_cullShader,
-                    s_cullKernel.kernelID,
-                    Properties.Culling._SortKeysMain,
-                    m_mainBuffers.sortKeysInBuffer
-                );
-                if (pipeline.shadowsEnabled)
-                {
-                    m_cullingCmdBuffer.SetComputeBufferParam(
-                        s_cullShader,
-                        s_cullKernel.kernelID,
-                        Properties.Culling._InstanceCountsShadow,
-                        m_shadowBuffers.instanceCountsBuffer
-                    );
-                    m_cullingCmdBuffer.SetComputeBufferParam(
-                        s_cullShader,
-                        s_cullKernel.kernelID,
-                        Properties.Culling._SortKeysShadow,
-                        m_shadowBuffers.sortKeysInBuffer
-                    );
-                }
-
-                m_cullingCmdBuffer.DispatchCompute(
-                    s_cullShader,
-                    s_cullKernel.kernelID, 
-                    s_cullThreadGroupCount, 1, 1
-                );
-                
-                if (pipeline.shadowsEnabled)
-                {
-                    m_shadowBuffers.Cull(m_cullingCmdBuffer, m_cullingConstantBuffer);
-                }
-
-                m_mainBuffers.Cull(m_cullingCmdBuffer, m_cullingConstantBuffer);
-                
-                Profiler.EndSample();
-            }
-
-            void Draw(Camera cam, ref PipelineInfo pipeline)
-            {
-                Profiler.BeginSample($"{nameof(Renderer)}.{nameof(Draw)}");
-                
-                m_mainBuffers.Draw(cam, false);
-
-                if (pipeline.shadowsEnabled)
-                {
-                    m_shadowBuffers.Draw(cam, true);
-                }
-
-                Profiler.EndSample();
-            }
-
-            public void Dispose()
-            {
-                m_mainBuffers.Dispose();
-                m_shadowBuffers.Dispose();
-                
-                DisposeUtils.Dispose(ref m_cullingCmdBuffer);
-                DisposeUtils.Dispose(ref m_cullingConstantBuffer);
-                DisposeUtils.Dispose(ref m_cullingProperties);
-            }
-        }
-        
-        class RenderPassBufferSet : IDisposable
-        {
-            readonly string m_name;
-            readonly MaterialPropertyBlock m_propertyBlock = new MaterialPropertyBlock();
-            
-            ComputeBuffer m_instanceCountsBuffer;
-            ComputeBuffer m_sortKeysInBuffer;
-            ComputeBuffer m_sortKeysOutBuffer;
-            ComputeBuffer m_sortScratchBuffer;
-            ComputeBuffer m_sortReducedScratchBuffer;
-            ComputeBuffer m_instancePropertiesBuffer;
-            ComputeBuffer m_drawArgsBuffer;
-            bool m_isCreated;
-
-            public ComputeBuffer instanceCountsBuffer => m_instanceCountsBuffer;
-            public ComputeBuffer sortKeysInBuffer => m_sortKeysInBuffer;
-
-            public RenderPassBufferSet(string name)
-            {
-                m_name = name;
-            }
-            
-            public void UpdateBuffers()
-            {
-                Profiler.BeginSample($"{nameof(RenderPassBufferSet)}.{nameof(UpdateBuffers)}");
-
-                m_isCreated = true;
-                
-                // update the per instance draw count buffers
-                if (m_instanceCountsBuffer == null || m_instanceCountsBuffer.count < s_numInstanceCounts)
-                {
-                    DisposeUtils.Dispose(ref m_instanceCountsBuffer);
-
-                    var count = Mathf.NextPowerOfTwo(s_numInstanceCounts);
-            
-                    m_instanceCountsBuffer = new ComputeBuffer(count, sizeof(uint))
-                    {
-                        name = $"{nameof(InstancingManager)}_{m_name}_InstanceCounts",
-                    };
-                }
-                
-                // update the per instance data buffers
-                if (m_instancePropertiesBuffer == null || m_instancePropertiesBuffer.count < s_instanceCount)
-                {
-                    DisposeUtils.Dispose(ref m_sortKeysInBuffer);
-                    DisposeUtils.Dispose(ref m_sortKeysOutBuffer);
-                    DisposeUtils.Dispose(ref m_instancePropertiesBuffer);
-
-                    var count = Mathf.NextPowerOfTwo(s_instanceCount);
-                    
-                    m_sortKeysInBuffer = new ComputeBuffer(count, sizeof(uint))
-                    {
-                        name = $"{nameof(InstancingManager)}_{m_name}_SortKeysInBuffer",
-                    };
-                    m_sortKeysOutBuffer = new ComputeBuffer(count, sizeof(uint))
-                    {
-                        name = $"{nameof(InstancingManager)}_{m_name}_SortKeysOutBuffer",
-                    };
-                    m_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
-                    {
-                        name = $"{nameof(InstancingManager)}_{m_name}_{nameof(InstanceProperties)}",
-                    };
-                    
-                    m_propertyBlock.SetBuffer(Properties.Main._InstanceProperties, m_instancePropertiesBuffer);
-                }
-
-                // update the sorting data buffers
-                if (m_sortScratchBuffer == null || m_sortScratchBuffer.count < s_sortScratchBufferLength)
-                {
-                    DisposeUtils.Dispose(ref m_sortScratchBuffer);
-                    
-                    var count = Mathf.NextPowerOfTwo(s_sortScratchBufferLength);
-
-                    m_sortScratchBuffer = new ComputeBuffer(count, sizeof(uint))
-                    {
-                        name = $"{nameof(InstancingManager)}_{m_name}_SortScratchBuffer",
-                    };
-                }
-                
-                if (m_sortReducedScratchBuffer == null || m_sortReducedScratchBuffer.count < s_sortReducedScratchBufferLength)
-                {
-                    DisposeUtils.Dispose(ref m_sortReducedScratchBuffer);
-                    
-                    var count = Mathf.NextPowerOfTwo(s_sortReducedScratchBufferLength);
-
-                    m_sortReducedScratchBuffer = new ComputeBuffer(count, sizeof(uint))
-                    {
-                        name = $"{nameof(InstancingManager)}_{m_name}_SortReducedScratchBuffer",
-                    };
-                }
-                
-                // update the per draw arg buffers
-                if (m_drawArgsBuffer == null || m_drawArgsBuffer.count < s_drawArgsCount)
-                {
-                    DisposeUtils.Dispose(ref m_drawArgsBuffer);
-
-                    var count = Mathf.NextPowerOfTwo(s_drawArgsCount);
-            
-                    m_drawArgsBuffer = new ComputeBuffer(count, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
-                    {
-                        name = $"{nameof(InstancingManager)}_{m_name}_{nameof(DrawArgs)}",
-                    };
-                    
-                    m_propertyBlock.SetBuffer(Properties.Main._DrawArgs, m_drawArgsBuffer);
-                }
-                
-                Profiler.EndSample();
-            }
-            
-            public void Cull(CommandBuffer cmd, ComputeBuffer cullingConstantBuffer)
-            {
-                Profiler.BeginSample($"{nameof(RenderPassBufferSet)}.{nameof(Cull)}");
-
-                // sort
-                cmd.SetComputeConstantBufferParam(
-                    s_sortShader,
-                    Properties.Sort._ConstantBuffer,
-                    s_sortingConstantBuffer,
-                    0,
-                    SortingPropertyBuffer.k_size
-                );
-
-                var sortKeysBuffer = m_sortKeysInBuffer;
-                var sortKeysTempBuffer = m_sortKeysOutBuffer;
-                
-                for (var shift = 0; shift < Constants.k_sortKeyBits; shift += Constants.k_sortBitsPerPass)
-                {
-                    cmd.SetComputeIntParam(
-                        s_sortShader,
-                        Properties.Sort._ShiftBit,
-                        shift
-                    );
-
-                    // count
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortCountKernel.kernelID,
-                        Properties.Sort._SrcBuffer,
-                        sortKeysBuffer
-                    );
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortCountKernel.kernelID,
-                        Properties.Sort._SumTable,
-                        m_sortScratchBuffer
-                    );
-                    
-                    cmd.DispatchCompute(
-                        s_sortShader,
-                        s_sortCountKernel.kernelID, 
-                        s_sortThreadGroupCount, 1, 1
-                    );
-                    
-                    // reduce
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortCountReduceKernel.kernelID,
-                        Properties.Sort._SumTable,
-                        m_sortScratchBuffer
-                    );
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortCountReduceKernel.kernelID,
-                        Properties.Sort._ReduceTable,
-                        m_sortReducedScratchBuffer
-                    );
-                    
-                    cmd.DispatchCompute(
-                        s_sortShader,
-                        s_sortCountReduceKernel.kernelID, 
-                        s_sortReducedThreadGroupCount, 1, 1
-                    );
-                    
-                    // scan
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortScanKernel.kernelID,
-                        Properties.Sort._Scan,
-                        m_sortReducedScratchBuffer
-                    );
-
-                    cmd.DispatchCompute(
-                        s_sortShader,
-                        s_sortScanKernel.kernelID, 
-                        1, 1, 1
-                    );
-
-                    // scan add
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortScanAddKernel.kernelID,
-                        Properties.Sort._Scan,
-                        m_sortScratchBuffer
-                    );
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortScanAddKernel.kernelID,
-                        Properties.Sort._ScanScratch,
-                        m_sortReducedScratchBuffer
-                    );
-
-                    cmd.DispatchCompute(
-                        s_sortShader,
-                        s_sortScanAddKernel.kernelID, 
-                        s_sortReducedThreadGroupCount, 1, 1
-                    );
-
-                    // scatter
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortScatterKernel.kernelID,
-                        Properties.Sort._SrcBuffer,
-                        sortKeysBuffer
-                    );
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortScatterKernel.kernelID,
-                        Properties.Sort._SumTable,
-                        m_sortScratchBuffer
-                    );
-                    cmd.SetComputeBufferParam(
-                        s_sortShader, 
-                        s_sortScatterKernel.kernelID,
-                        Properties.Sort._DstBuffer,
-                        sortKeysTempBuffer
-                    );
-                    
-                    cmd.DispatchCompute(
-                        s_sortShader,
-                        s_sortScatterKernel.kernelID, 
-                        s_sortThreadGroupCount, 1, 1
-                    );
-
-                    // alternate which buffer we are sorting into
-                    var lastSortKeysBuffer = sortKeysBuffer;
-                    sortKeysBuffer = sortKeysTempBuffer;
-                    sortKeysTempBuffer = lastSortKeysBuffer;
-                }
-                
-                // compact
-                cmd.SetComputeConstantBufferParam(
-                    s_compactShader,
-                    Properties.Compact._ConstantBuffer,
-                    cullingConstantBuffer,
-                    0,
-                    CullingPropertyBuffer.k_size
-                );
-                cmd.SetComputeBufferParam(
-                    s_compactShader,
-                    s_compactKernel.kernelID,
-                    Properties.Compact._InstanceData,
-                    s_instanceDataBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_compactShader,
-                    s_compactKernel.kernelID,
-                    Properties.Compact._SortKeys,
-                    sortKeysBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_compactShader,
-                    s_compactKernel.kernelID,
-                    Properties.Compact._InstanceProperties,
-                    m_instancePropertiesBuffer
-                );
-                
-                cmd.DispatchCompute(
-                    s_compactShader,
-                    s_compactKernel.kernelID, 
-                    s_compactThreadGroupCount, 1, 1
-                );
-                
-                // set draw args
-                cmd.SetComputeConstantBufferParam(
-                    s_setDrawArgsShader,
-                    Properties.SetDrawArgs._ConstantBuffer,
-                    cullingConstantBuffer,
-                    0,
-                    CullingPropertyBuffer.k_size
-                );
-                cmd.SetComputeBufferParam(
-                    s_setDrawArgsShader,
-                    s_setDrawArgsKernel.kernelID,
-                    Properties.SetDrawArgs._InstanceCounts,
-                    m_instanceCountsBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_setDrawArgsShader,
-                    s_setDrawArgsKernel.kernelID,
-                    Properties.SetDrawArgs._InstanceTypeData,
-                    s_instanceTypeDataBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_setDrawArgsShader,
-                    s_setDrawArgsKernel.kernelID,
-                    Properties.SetDrawArgs._DrawArgsSrc,
-                    s_drawArgsSrcBuffer
-                );
-                cmd.SetComputeBufferParam(
-                    s_setDrawArgsShader,
-                    s_setDrawArgsKernel.kernelID,
-                    Properties.SetDrawArgs._DrawArgs,
-                    m_drawArgsBuffer
-                );
-                
-                cmd.DispatchCompute(
-                    s_setDrawArgsShader,
-                    s_setDrawArgsKernel.kernelID, 
-                    1, 1, 1
-                );
-                
-                Profiler.EndSample();
-            }
-            
-            public void Draw(Camera cam, bool isShadows)
-            {
-                Profiler.BeginSample($"{nameof(RenderPassBufferSet)}.{nameof(Draw)}");
-
-                var bounds = new Bounds
-                {
-                    center = cam.transform.position,
-                    extents = Vector3.one * cam.farClipPlane,
-                };
-                
-                m_propertyBlock.SetBuffer(Properties.Main._AnimationData, s_animationDataBuffer);
-
-                for (var i = 0; i < s_drawCalls.Count; i++)
-                {
-                    var drawCall = s_drawCalls[i];
-                    var mesh = s_meshHandles.GetInstance(drawCall.mesh);
-                    var material = s_materialHandles.GetInstance(drawCall.material);
-                    var animationSet = s_animationSetHandles.GetInstance(drawCall.animation);
-                
-                    m_propertyBlock.SetInt(Properties.Main._DrawArgsOffset, i);
-                    m_propertyBlock.SetTexture(Properties.Main._Animation, animationSet.Texture);
-                
-                    Graphics.DrawMeshInstancedIndirect(
-                        mesh,
-                        drawCall.subMesh,
-                        material,
-                        bounds,
-                        m_drawArgsBuffer,
-                        i * DrawArgs.k_size,
-                        m_propertyBlock,
-                        isShadows ? ShadowCastingMode.ShadowsOnly : ShadowCastingMode.Off,
-                        true,
-                        0,
-                        cam,
-                        LightProbeUsage.Off
-                    );
-                }
-
-                Profiler.EndSample();
-            }
-
-            public void Dispose()
-            {
-                if (!m_isCreated)
-                {
-                    return;
-                }
-                
-                DisposeUtils.Dispose(ref m_instanceCountsBuffer);
-                DisposeUtils.Dispose(ref m_sortKeysInBuffer);
-                DisposeUtils.Dispose(ref m_sortKeysOutBuffer);
-                DisposeUtils.Dispose(ref m_sortScratchBuffer);
-                DisposeUtils.Dispose(ref m_sortReducedScratchBuffer);
-                DisposeUtils.Dispose(ref m_instancePropertiesBuffer);
-                DisposeUtils.Dispose(ref m_drawArgsBuffer);
-                
-                m_isCreated = false;
-            }
-        }
-
+        // shader resources
         static bool s_resourcesInitialized;
         static InstancingResources s_resources;
         static ComputeShader s_cullShader;
@@ -701,35 +124,57 @@ namespace AnimationInstancing
         static KernelInfo s_compactKernel;
         static KernelInfo s_setDrawArgsKernel;
 
+        // command buffers
+        static CommandBuffer s_cullingCmdBuffer;
+        
+        // constant buffers
+        static NativeArray<CullingPropertyBuffer> s_cullingProperties;
+        static ComputeBuffer s_cullingConstantBuffer;
+        static NativeArray<SortingPropertyBuffer> s_sortingProperties;
         static ComputeBuffer s_sortingConstantBuffer;
         
+        // buffers with data from CPU
         static ComputeBuffer s_lodDataBuffer;
         static ComputeBuffer s_animationDataBuffer;
         static ComputeBuffer s_drawArgsSrcBuffer;
         static ComputeBuffer s_instanceTypeDataBuffer;
         static ComputeBuffer s_instanceDataBuffer;
+        
+        // buffers with data from GPU
+        static ComputeBuffer s_instanceCountsBuffer;
+        static ComputeBuffer s_sortKeysInBuffer;
+        static ComputeBuffer s_sortKeysOutBuffer;
+        static ComputeBuffer s_sortScratchBuffer;
+        static ComputeBuffer s_sortReducedScratchBuffer;
+        static ComputeBuffer s_instancePropertiesBuffer;
+        static ComputeBuffer s_drawArgsBuffer;
+        
+        static int s_lastSortingBufferLength;
+
+        // thead group sizes
         static int s_cullResetCountsThreadGroupCount;
         static int s_cullThreadGroupCount;
         static int s_sortThreadGroupCount;
         static int s_sortReducedThreadGroupCount;
         static int s_compactThreadGroupCount;
 
+        static int s_providerIndexCount;
         static NativeArray<int> s_providerIndices;
         static NativeArray<InstanceData> s_instanceData;
-        static int s_providerIndexCount;
         
         // TODO: move to native array, make "baked" copy that references instances
         static readonly List<DrawCall> s_drawCalls = new List<DrawCall>();
-        static readonly List<Renderer> s_renderers = new List<Renderer>();
         static int s_drawArgsCount;
-        static int s_instanceCount;
         static int s_numInstanceCounts;
-        static int s_sortScratchBufferLength;
-        static int s_sortReducedScratchBufferLength;
+        static int s_instanceCount;
 
         static bool s_enabled;
         static DirtyFlags s_dirtyFlags;
         
+        static PipelineInfo s_pipelineInfo;
+        static readonly MaterialPropertyBlock s_propertyBlock = new MaterialPropertyBlock();
+        
+        // handle registrars
         static readonly List<IInstanceProvider> s_providers = new List<IInstanceProvider>();
         static readonly HandleManager<Mesh> s_meshHandles = new HandleManager<Mesh>();
         static readonly HandleManager<Material> s_materialHandles = new HandleManager<Material>();
@@ -815,6 +260,7 @@ namespace AnimationInstancing
             s_dirtyFlags = DirtyFlags.All;
                 
             RenderPipelineManager.beginFrameRendering += OnBeginFrameRendering;
+            RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
         }
 
         /// <summary>
@@ -827,6 +273,7 @@ namespace AnimationInstancing
         public static void Disable(bool disposeResources)
         {
             RenderPipelineManager.beginFrameRendering -= OnBeginFrameRendering;
+            RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
 
             s_enabled = false;
 
@@ -1088,49 +535,546 @@ namespace AnimationInstancing
                 return;
             }
 
-            Render(cameras);
+            PrepareFrameRendering();
         }
 
-        static void Render(Camera[] cameras)
+        static void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
         {
-            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Render)}");
+            if (s_instanceCount == 0)
+            {
+                return;
+            }
 
-            PipelineInfo.GetInfoForCurrentPipeline(out var pipeline);
+            Render(camera);
+        }
+
+        static void PrepareFrameRendering()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(PrepareFrameRendering)}");
             
-            if (pipeline.shadowsEnabled)
+            PipelineInfo.GetInfoForCurrentPipeline(out s_pipelineInfo);
+            
+            if (s_pipelineInfo.shadowsEnabled)
             {
                 s_cullShader.EnableKeyword(Keywords.Culling.SHADOWS_ENABLED);
+                s_setDrawArgsShader.EnableKeyword(Keywords.Culling.SHADOWS_ENABLED);
             }
             else
             {
                 s_cullShader.DisableKeyword(Keywords.Culling.SHADOWS_ENABLED);
+                s_setDrawArgsShader.DisableKeyword(Keywords.Culling.SHADOWS_ENABLED);
             }
 
-            for (var i = 0; i < cameras.Length; i++)
+            UpdateBuffers();
+            
+            Profiler.EndSample();
+        }
+
+        static void UpdateBuffers()
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(UpdateBuffers)}");
+
+            // determine how large the compute buffers need to be
+            var drawArgsBufferLength = s_drawArgsCount;
+            var numInstanceCountsBufferLength = s_numInstanceCounts;
+            var perInstanceBuffersLength = s_instanceCount;
+            
+            if (s_pipelineInfo.shadowsEnabled)
             {
-                var cam = cameras[i];
+                drawArgsBufferLength *= 2;
+                numInstanceCountsBufferLength *= 2;
+                perInstanceBuffersLength *= 2;
+            }
+            
+            // find how many thread groups we should use for the culling shaders
+            s_compactThreadGroupCount = GetThreadGroupCount(perInstanceBuffersLength, s_compactKernel.threadGroupSizeX);
+
+            // determine the properties of the sorting pass needed for the current instance count
+            if (s_lastSortingBufferLength != perInstanceBuffersLength)
+            {
+                s_lastSortingBufferLength = perInstanceBuffersLength;
                 
-                Renderer renderer;
-                if (i < s_renderers.Count)
-                {
-                    renderer = s_renderers[i];
-                }
-                else
-                {
-                    renderer = new Renderer();
-                    s_renderers.Add(renderer);
-                }
+                var blockSize = Constants.k_sortElementsPerThread * s_sortCountKernel.threadGroupSizeX;
+                var numBlocks = GetThreadGroupCount(s_lastSortingBufferLength, blockSize);
+                var numReducedBlocks = GetThreadGroupCount(numBlocks, blockSize);
+                
+                s_sortThreadGroupCount = 800;
+                var numThreadGroupsWithAdditionalBlocks = numBlocks % s_sortThreadGroupCount;
+                var blocksPerThreadGroup = numBlocks / s_sortThreadGroupCount;
 
-                renderer.Render(cam, ref pipeline);
+                if (numBlocks < s_sortThreadGroupCount)
+                {
+                    s_sortThreadGroupCount = numBlocks;
+                    numThreadGroupsWithAdditionalBlocks = 0;
+                    blocksPerThreadGroup = 1;
+                }
+                
+                var reducedThreadGroupCountPerBin = (blockSize > s_sortThreadGroupCount) ? 1 : GetThreadGroupCount(s_sortThreadGroupCount, blockSize);
+                s_sortReducedThreadGroupCount = Constants.k_sortBinCount * reducedThreadGroupCountPerBin;
+
+                Debug.Assert(s_sortReducedThreadGroupCount < blockSize, "Need to account for bigger reduced histogram scan!");
+
+                var sortScratchBufferLength = Constants.k_sortBinCount * numBlocks;
+                var sortReducedScratchBufferLength = Constants.k_sortBinCount * numReducedBlocks;
+
+                // update the sorting constant buffer
+                s_sortingProperties[0] = new SortingPropertyBuffer
+                {
+                    _NumKeys = (uint)s_lastSortingBufferLength,
+                    _NumBlocksPerThreadGroup = blocksPerThreadGroup,
+                    _NumThreadGroups = (uint)s_sortThreadGroupCount,
+                    _NumThreadGroupsWithAdditionalBlocks = (uint)numThreadGroupsWithAdditionalBlocks,
+                    _NumReduceThreadGroupPerBin = (uint)reducedThreadGroupCountPerBin,
+                    _NumScanValues = (uint)s_sortReducedThreadGroupCount,
+                };
+                
+                s_sortingConstantBuffer.SetData(s_sortingProperties, 0, 0, s_sortingProperties.Length);
+                
+                // update the sorting scratch buffers
+                if (s_sortScratchBuffer == null || s_sortScratchBuffer.count < sortScratchBufferLength)
+                {
+                    DisposeUtils.Dispose(ref s_sortScratchBuffer);
+                
+                    var count = Mathf.NextPowerOfTwo(sortScratchBufferLength);
+
+                    s_sortScratchBuffer = new ComputeBuffer(count, sizeof(uint))
+                    {
+                        name = $"{nameof(InstancingManager)}_SortScratchBuffer",
+                    };
+                }
+            
+                if (s_sortReducedScratchBuffer == null || s_sortReducedScratchBuffer.count < sortReducedScratchBufferLength)
+                {
+                    DisposeUtils.Dispose(ref s_sortReducedScratchBuffer);
+                
+                    var count = Mathf.NextPowerOfTwo(sortReducedScratchBufferLength);
+
+                    s_sortReducedScratchBuffer = new ComputeBuffer(count, sizeof(uint))
+                    {
+                        name = $"{nameof(InstancingManager)}_SortReducedScratchBuffer",
+                    };
+                }
             }
             
-            // dispose unused resources
-            for (var i = s_renderers.Count - 1; i >= cameras.Length; i--)
+            // update the per draw arg buffers
+            if (s_drawArgsBuffer == null || s_drawArgsBuffer.count < drawArgsBufferLength)
             {
-                s_renderers[i].Dispose();
-                s_renderers.RemoveAt(i);
+                DisposeUtils.Dispose(ref s_drawArgsBuffer);
+
+                var count = Mathf.NextPowerOfTwo(drawArgsBufferLength);
+        
+                s_drawArgsBuffer = new ComputeBuffer(count, DrawArgs.k_size, ComputeBufferType.IndirectArguments)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(DrawArgs)}",
+                };
+                
+                s_propertyBlock.SetBuffer(Properties.Main._DrawArgs, s_drawArgsBuffer);
             }
             
+            // update the per instance draw count buffers
+            if (s_instanceCountsBuffer == null || s_instanceCountsBuffer.count < numInstanceCountsBufferLength)
+            {
+                DisposeUtils.Dispose(ref s_instanceCountsBuffer);
+
+                var count = Mathf.NextPowerOfTwo(numInstanceCountsBufferLength);
+        
+                s_instanceCountsBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_InstanceCounts",
+                };
+            }
+            
+            // update the per instance data buffers
+            if (s_instancePropertiesBuffer == null || s_instancePropertiesBuffer.count < perInstanceBuffersLength)
+            {
+                DisposeUtils.Dispose(ref s_sortKeysInBuffer);
+                DisposeUtils.Dispose(ref s_sortKeysOutBuffer);
+                DisposeUtils.Dispose(ref s_instancePropertiesBuffer);
+
+                var count = Mathf.NextPowerOfTwo(perInstanceBuffersLength);
+                
+                s_sortKeysInBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_SortKeysInBuffer",
+                };
+                s_sortKeysOutBuffer = new ComputeBuffer(count, sizeof(uint))
+                {
+                    name = $"{nameof(InstancingManager)}_SortKeysOutBuffer",
+                };
+                s_instancePropertiesBuffer = new ComputeBuffer(count, InstanceProperties.k_size)
+                {
+                    name = $"{nameof(InstancingManager)}_{nameof(InstanceProperties)}",
+                };
+                
+                s_propertyBlock.SetBuffer(Properties.Main._InstanceProperties, s_instancePropertiesBuffer);
+            }
+            
+            Profiler.EndSample();
+        }
+            
+        static void Render(Camera cam)
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Render)}");
+
+            Cull(cam);
+            Draw(cam);
+
+            Profiler.EndSample();
+        }
+        
+        static void Cull(Camera cam)
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Cull)}");
+            
+            s_cullingCmdBuffer.Clear();
+            
+            // update constant buffer
+            var vFov = cam.fieldOfView;
+            var hFov = Camera.VerticalToHorizontalFieldOfView(vFov, cam.aspect);
+            var fov = math.max(vFov, hFov);
+
+            s_cullingProperties[0] = new CullingPropertyBuffer
+            {
+                _ViewProj = cam.projectionMatrix * cam.worldToCameraMatrix,
+                _CameraPosition = cam.transform.position,
+                _LodBias = QualitySettings.lodBias,
+                _LodScale = 1f / (2f * math.tan(math.radians(fov / 2f))),
+                _ShadowDistance = s_pipelineInfo.shadowDistance,
+                _PassCount = s_pipelineInfo.shadowsEnabled ? 2u : 1u,
+                _InstanceCount = s_instanceCount,
+                _NumInstanceCounts = (uint)s_numInstanceCounts,
+                _DrawArgsPerPass = (uint)s_drawArgsCount,
+            };
+            
+            s_cullingCmdBuffer.SetBufferData(
+                s_cullingConstantBuffer,
+                s_cullingProperties,
+                0, 
+                0, 
+                s_cullingProperties.Length
+            );
+
+            // initialize buffers
+            s_cullingCmdBuffer.SetComputeConstantBufferParam(
+                s_cullShader,
+                Properties.Culling._ConstantBuffer,
+                s_cullingConstantBuffer,
+                0,
+                CullingPropertyBuffer.k_size
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullShader,
+                s_cullResetCountsKernel.kernelID,
+                Properties.Culling._InstanceCounts,
+                s_instanceCountsBuffer
+            );
+            
+            s_cullingCmdBuffer.DispatchCompute(
+                s_cullShader,
+                s_cullResetCountsKernel.kernelID, 
+                s_cullResetCountsThreadGroupCount, 1, 1
+            );
+            
+            // culling and lod selection
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullShader,
+                s_cullKernel.kernelID,
+                Properties.Culling._LodData,
+                s_lodDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullShader,
+                s_cullKernel.kernelID,
+                Properties.Culling._AnimationData,
+                s_animationDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullShader,
+                s_cullKernel.kernelID,
+                Properties.Culling._InstanceData,
+                s_instanceDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullShader,
+                s_cullKernel.kernelID,
+                Properties.Culling._InstanceCounts,
+                s_instanceCountsBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_cullShader,
+                s_cullKernel.kernelID,
+                Properties.Culling._SortKeys,
+                s_sortKeysInBuffer
+            );
+
+            s_cullingCmdBuffer.DispatchCompute(
+                s_cullShader,
+                s_cullKernel.kernelID, 
+                s_cullThreadGroupCount, 1, 1
+            );
+        
+            // sort
+            s_cullingCmdBuffer.SetComputeConstantBufferParam(
+                s_sortShader,
+                Properties.Sort._ConstantBuffer,
+                s_sortingConstantBuffer,
+                0,
+                SortingPropertyBuffer.k_size
+            );
+
+            var sortKeysBuffer = s_sortKeysInBuffer;
+            var sortKeysTempBuffer = s_sortKeysOutBuffer;
+            
+            for (var shift = 0; shift < Constants.k_sortKeyBits; shift += Constants.k_sortBitsPerPass)
+            {
+                s_cullingCmdBuffer.SetComputeIntParam(
+                    s_sortShader,
+                    Properties.Sort._ShiftBit,
+                    shift
+                );
+
+                // count
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortCountKernel.kernelID,
+                    Properties.Sort._SrcBuffer,
+                    sortKeysBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortCountKernel.kernelID,
+                    Properties.Sort._SumTable,
+                    s_sortScratchBuffer
+                );
+                
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortCountKernel.kernelID, 
+                    s_sortThreadGroupCount, 1, 1
+                );
+                
+                // reduce
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortCountReduceKernel.kernelID,
+                    Properties.Sort._SumTable,
+                    s_sortScratchBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortCountReduceKernel.kernelID,
+                    Properties.Sort._ReduceTable,
+                    s_sortReducedScratchBuffer
+                );
+                
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortCountReduceKernel.kernelID, 
+                    s_sortReducedThreadGroupCount, 1, 1
+                );
+                
+                // scan
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScanKernel.kernelID,
+                    Properties.Sort._Scan,
+                    s_sortReducedScratchBuffer
+                );
+
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortScanKernel.kernelID, 
+                    1, 1, 1
+                );
+
+                // scan add
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScanAddKernel.kernelID,
+                    Properties.Sort._Scan,
+                    s_sortScratchBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScanAddKernel.kernelID,
+                    Properties.Sort._ScanScratch,
+                    s_sortReducedScratchBuffer
+                );
+
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortScanAddKernel.kernelID, 
+                    s_sortReducedThreadGroupCount, 1, 1
+                );
+
+                // scatter
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScatterKernel.kernelID,
+                    Properties.Sort._SrcBuffer,
+                    sortKeysBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScatterKernel.kernelID,
+                    Properties.Sort._SumTable,
+                    s_sortScratchBuffer
+                );
+                s_cullingCmdBuffer.SetComputeBufferParam(
+                    s_sortShader, 
+                    s_sortScatterKernel.kernelID,
+                    Properties.Sort._DstBuffer,
+                    sortKeysTempBuffer
+                );
+                
+                s_cullingCmdBuffer.DispatchCompute(
+                    s_sortShader,
+                    s_sortScatterKernel.kernelID, 
+                    s_sortThreadGroupCount, 1, 1
+                );
+
+                // alternate which buffer we are sorting into
+                var lastSortKeysBuffer = sortKeysBuffer;
+                sortKeysBuffer = sortKeysTempBuffer;
+                sortKeysTempBuffer = lastSortKeysBuffer;
+            }
+            
+            // compact
+            s_cullingCmdBuffer.SetComputeConstantBufferParam(
+                s_compactShader,
+                Properties.Compact._ConstantBuffer,
+                s_cullingConstantBuffer,
+                0,
+                CullingPropertyBuffer.k_size
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel.kernelID,
+                Properties.Compact._InstanceData,
+                s_instanceDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel.kernelID,
+                Properties.Compact._SortKeys,
+                sortKeysBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_compactShader,
+                s_compactKernel.kernelID,
+                Properties.Compact._InstanceProperties,
+                s_instancePropertiesBuffer
+            );
+            
+            s_cullingCmdBuffer.DispatchCompute(
+                s_compactShader,
+                s_compactKernel.kernelID, 
+                s_compactThreadGroupCount, 1, 1
+            );
+            
+            // set draw args
+            s_cullingCmdBuffer.SetComputeConstantBufferParam(
+                s_setDrawArgsShader,
+                Properties.SetDrawArgs._ConstantBuffer,
+                s_cullingConstantBuffer,
+                0,
+                CullingPropertyBuffer.k_size
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_setDrawArgsShader,
+                s_setDrawArgsKernel.kernelID,
+                Properties.SetDrawArgs._InstanceCounts,
+                s_instanceCountsBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_setDrawArgsShader,
+                s_setDrawArgsKernel.kernelID,
+                Properties.SetDrawArgs._InstanceTypeData,
+                s_instanceTypeDataBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_setDrawArgsShader,
+                s_setDrawArgsKernel.kernelID,
+                Properties.SetDrawArgs._DrawArgsSrc,
+                s_drawArgsSrcBuffer
+            );
+            s_cullingCmdBuffer.SetComputeBufferParam(
+                s_setDrawArgsShader,
+                s_setDrawArgsKernel.kernelID,
+                Properties.SetDrawArgs._DrawArgs,
+                s_drawArgsBuffer
+            );
+            
+            s_cullingCmdBuffer.DispatchCompute(
+                s_setDrawArgsShader,
+                s_setDrawArgsKernel.kernelID, 
+                1, 1, 1
+            );
+            
+            Graphics.ExecuteCommandBuffer(s_cullingCmdBuffer);
+
+            Profiler.EndSample();
+        }
+
+        static void Draw(Camera cam)
+        {
+            Profiler.BeginSample($"{nameof(InstancingManager)}.{nameof(Draw)}");
+
+            var bounds = new Bounds
+            {
+                center = cam.transform.position,
+                extents = Vector3.one * cam.farClipPlane,
+            };
+
+            var argsLength = s_drawArgsCount * DrawArgs.k_size;
+            
+            for (var i = 0; i < s_drawArgsCount; i++)
+            {
+                var drawCall = s_drawCalls[i];
+                var mesh = s_meshHandles.GetInstance(drawCall.mesh);
+                var material = s_materialHandles.GetInstance(drawCall.material);
+                var animationSet = s_animationSetHandles.GetInstance(drawCall.animation);
+                var argsOffset = i * DrawArgs.k_size;
+                
+                s_propertyBlock.SetInt(Properties.Main._DrawArgsOffset, i);
+                s_propertyBlock.SetTexture(Properties.Main._Animation, animationSet.Texture);
+
+                Graphics.DrawMeshInstancedIndirect(
+                    mesh,
+                    drawCall.subMesh,
+                    material,
+                    bounds,
+                    s_drawArgsBuffer,
+                    argsOffset,
+                    s_propertyBlock,
+                    ShadowCastingMode.Off,
+                    true,
+                    0,
+                    cam,
+                    LightProbeUsage.Off
+                );
+
+                if (s_pipelineInfo.shadowsEnabled)
+                {
+                    s_propertyBlock.SetInt(Properties.Main._DrawArgsOffset, s_drawArgsCount + i);
+                    
+                    Graphics.DrawMeshInstancedIndirect(
+                        mesh,
+                        drawCall.subMesh,
+                        material,
+                        bounds,
+                        s_drawArgsBuffer,
+                        argsLength + argsOffset,
+                        s_propertyBlock,
+                        ShadowCastingMode.ShadowsOnly,
+                        true,
+                        0,
+                        cam,
+                        LightProbeUsage.Off
+                    );
+                }
+            }
+
             Profiler.EndSample();
         }
 
@@ -1243,6 +1187,8 @@ namespace AnimationInstancing
             
             s_animationDataBuffer.SetData(animationData, 0, 0, animationData.Length);
             animationData.Dispose();
+
+            s_propertyBlock.SetBuffer(Properties.Main._AnimationData, s_animationDataBuffer);
             
             Profiler.EndSample();
         }
@@ -1431,6 +1377,9 @@ namespace AnimationInstancing
 
             s_instanceCount = instanceCount;
             
+            // update the number of threads needed to cull this many instances
+            s_cullThreadGroupCount = GetThreadGroupCount(instanceCount, s_cullKernel.threadGroupSizeX);
+            
             // create new buffers if the current ones are too small
             if (!s_instanceData.IsCreated || s_instanceData.Length < instanceCount)
             {
@@ -1454,54 +1403,6 @@ namespace AnimationInstancing
                     name = $"{nameof(InstancingManager)}_{nameof(InstanceData)}",
                 };
             }
-
-            // find how many thread groups we should use for the culling shaders
-            s_cullThreadGroupCount = GetThreadGroupCount(instanceCount, s_cullKernel.threadGroupSizeX);
-            s_compactThreadGroupCount = GetThreadGroupCount(instanceCount, s_compactKernel.threadGroupSizeX);
-
-            // determine the properties of the sorting pass needed for the current instance count
-            var blockSize = Constants.k_sortElementsPerThread * s_sortCountKernel.threadGroupSizeX;
-            var numBlocks = GetThreadGroupCount(instanceCount, blockSize);
-            var numReducedBlocks = GetThreadGroupCount(numBlocks, blockSize);
-            
-            s_sortThreadGroupCount = 800;
-            var numThreadGroupsWithAdditionalBlocks = numBlocks % s_sortThreadGroupCount;
-            var blocksPerThreadGroup = numBlocks / s_sortThreadGroupCount;
-
-            if (numBlocks < s_sortThreadGroupCount)
-            {
-                s_sortThreadGroupCount = numBlocks;
-                numThreadGroupsWithAdditionalBlocks = 0;
-                blocksPerThreadGroup = 1;
-            }
-            
-            var reducedThreadGroupCountPerBin = (blockSize > s_sortThreadGroupCount) ? 1 : GetThreadGroupCount(s_sortThreadGroupCount, blockSize);
-            s_sortReducedThreadGroupCount = Constants.k_sortBinCount * reducedThreadGroupCountPerBin;
-
-            Debug.Assert(s_sortReducedThreadGroupCount < blockSize, "Need to account for bigger reduced histogram scan!");
-
-            var sortingProperties = new NativeArray<SortingPropertyBuffer>(
-                1,
-                Allocator.Temp,
-                NativeArrayOptions.UninitializedMemory
-            )
-            {
-                [0] = new SortingPropertyBuffer
-                {
-                    _NumKeys = (uint)instanceCount,
-                    _NumBlocksPerThreadGroup = blocksPerThreadGroup,
-                    _NumThreadGroups = (uint)s_sortThreadGroupCount,
-                    _NumThreadGroupsWithAdditionalBlocks = (uint)numThreadGroupsWithAdditionalBlocks,
-                    _NumReduceThreadGroupPerBin = (uint)reducedThreadGroupCountPerBin,
-                    _NumScanValues = (uint)s_sortReducedThreadGroupCount,
-                },
-            };
-            
-            s_sortingConstantBuffer.SetData(sortingProperties, 0, 0, sortingProperties.Length);
-            sortingProperties.Dispose();
-
-            s_sortScratchBufferLength = Constants.k_sortBinCount * numBlocks;
-            s_sortReducedScratchBufferLength = Constants.k_sortBinCount * numReducedBlocks;
 
             Profiler.EndSample();
         }
@@ -1631,9 +1532,36 @@ namespace AnimationInstancing
                 return false;
             }
 
+            // create command buffers
+            s_cullingCmdBuffer = new CommandBuffer
+            {
+                name = $"{nameof(InstancingManager)}_Culling",
+            };
+                
             // create constant buffers
-            s_sortingConstantBuffer = new ComputeBuffer(
+            s_cullingProperties = new NativeArray<CullingPropertyBuffer>(
                 1,
+                Allocator.Persistent,
+                NativeArrayOptions.UninitializedMemory
+            );
+            
+            s_cullingConstantBuffer = new ComputeBuffer(
+                s_cullingProperties.Length,
+                CullingPropertyBuffer.k_size,
+                ComputeBufferType.Constant
+            )
+            {
+                name = $"{nameof(InstancingManager)}_{nameof(CullingPropertyBuffer)}",
+            };
+
+            s_sortingProperties = new NativeArray<SortingPropertyBuffer>(
+                1,
+                Allocator.Persistent,
+                NativeArrayOptions.UninitializedMemory
+            );
+                
+            s_sortingConstantBuffer = new ComputeBuffer(
+                s_sortingProperties.Length,
                 SortingPropertyBuffer.k_size,
                 ComputeBufferType.Constant
             )
@@ -1648,6 +1576,7 @@ namespace AnimationInstancing
         static void DisposeResources()
         {
             RenderPipelineManager.beginFrameRendering -= OnBeginFrameRendering;
+            RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
 
             s_enabled = false;
             s_dirtyFlags = DirtyFlags.All;
@@ -1676,7 +1605,13 @@ namespace AnimationInstancing
             s_compactKernel = default;
             s_setDrawArgsKernel = default;
 
+            // dispose command buffers
+            DisposeUtils.Dispose(ref s_cullingCmdBuffer);
+
             // dispose constant buffers
+            DisposeUtils.Dispose(ref s_cullingProperties);
+            DisposeUtils.Dispose(ref s_cullingConstantBuffer);
+            DisposeUtils.Dispose(ref s_sortingProperties);
             DisposeUtils.Dispose(ref s_sortingConstantBuffer);
 
             // dispose compute buffers
@@ -1686,6 +1621,17 @@ namespace AnimationInstancing
             DisposeUtils.Dispose(ref s_instanceTypeDataBuffer);
             DisposeUtils.Dispose(ref s_instanceDataBuffer);
 
+            DisposeUtils.Dispose(ref s_instanceCountsBuffer);
+            DisposeUtils.Dispose(ref s_sortKeysInBuffer);
+            DisposeUtils.Dispose(ref s_sortKeysOutBuffer);
+            DisposeUtils.Dispose(ref s_sortScratchBuffer);
+            DisposeUtils.Dispose(ref s_sortReducedScratchBuffer);
+            DisposeUtils.Dispose(ref s_instancePropertiesBuffer);
+            DisposeUtils.Dispose(ref s_drawArgsBuffer);
+
+            s_lastSortingBufferLength = 0;
+            
+            // reset thread group sizes
             s_cullResetCountsThreadGroupCount = 0;
             s_cullThreadGroupCount = 0;
             s_sortThreadGroupCount = 0;
@@ -1694,21 +1640,13 @@ namespace AnimationInstancing
             
             // dispose render passes
             s_drawArgsCount = 0;
-            s_instanceCount = 0;
             s_numInstanceCounts = 0;
-            s_sortScratchBufferLength = 0;
-            s_sortReducedScratchBufferLength = 0;
+            s_instanceCount = 0;
 
-            foreach (var renderPassBuffer in s_renderers)
-            {
-                renderPassBuffer.Dispose();
-            }
-            s_renderers.Clear();
-            
             // dispose main memory buffers
+            s_providerIndexCount = 0;
             DisposeUtils.Dispose(ref s_providerIndices);
             DisposeUtils.Dispose(ref s_instanceData);
-            s_providerIndexCount = 0;
             
             // clear managed state
             s_drawCalls.Clear();

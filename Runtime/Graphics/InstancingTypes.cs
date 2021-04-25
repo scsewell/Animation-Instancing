@@ -195,8 +195,10 @@ namespace AnimationInstancing
         public float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
         public float _LodBias;
         public float _ShadowDistance;
+        public uint _PassCount;
         public int _InstanceCount;
         public uint _NumInstanceCounts;
+        public uint _DrawArgsPerPass;
     }
     
     [StructLayout(LayoutKind.Sequential)]

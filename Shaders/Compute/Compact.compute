@@ -9,10 +9,10 @@ StructuredBuffer<uint> _SortKeys;
 RWStructuredBuffer<InstanceProperties> _InstanceProperties;
 
 [numthreads(64, 1, 1)]
-void CSMain(int tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
+void CSMain(uint tID : SV_DispatchThreadID, uint groupID : SV_GroupID)
 {
     // scatter instance data based on the index determined by the sort
-    uint sortKey = tID < _InstanceCount ? _SortKeys[tID] : ANIMATION_INSTANCING_NULL_SORT_KEY;
+    uint sortKey = tID < (_PassCount * _InstanceCount) ? _SortKeys[tID] : ANIMATION_INSTANCING_NULL_SORT_KEY;
 
     if (sortKey != ANIMATION_INSTANCING_NULL_SORT_KEY)
     {

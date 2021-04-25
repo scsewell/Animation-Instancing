@@ -72,8 +72,10 @@ float3 _CameraPosition;
 float _LodScale; // 1 / (2 * tan((fov / 2) * (pi / 180)))
 float _LodBias;
 float _ShadowDistance;
+uint _PassCount;
 int _InstanceCount;
 uint _NumInstanceCounts;
+uint _DrawArgsPerPass;
 CBUFFER_END
 
 #endif // ANIMATION_INSTANCING_TYPES_INCLUDED
