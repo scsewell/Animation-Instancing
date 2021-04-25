@@ -196,7 +196,7 @@ namespace AnimationInstancing
         public float _LodBias;
         public float _ShadowDistance;
         public uint _PassCount;
-        public int _InstanceCount;
+        public uint _InstanceCount;
         public uint _NumInstanceCounts;
         public uint _DrawArgsPerPass;
     }

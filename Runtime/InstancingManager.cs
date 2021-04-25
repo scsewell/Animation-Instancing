@@ -741,7 +741,7 @@ namespace AnimationInstancing
                 _LodScale = 1f / (2f * math.tan(math.radians(fov / 2f))),
                 _ShadowDistance = s_pipelineInfo.shadowDistance,
                 _PassCount = s_pipelineInfo.shadowsEnabled ? 2u : 1u,
-                _InstanceCount = s_instanceCount,
+                _InstanceCount = (uint)s_instanceCount,
                 _NumInstanceCounts = (uint)s_numInstanceCounts,
                 _DrawArgsPerPass = (uint)s_drawArgsCount,
             };

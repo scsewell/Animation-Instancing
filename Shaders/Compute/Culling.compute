@@ -118,7 +118,7 @@ void Cull(uint tID : SV_DispatchThreadID)
     uint shadowSortingKey = CreateSortingKey(1, shadowCountIndex, tID);
 #endif
 
-    if (tID < (uint)_InstanceCount)
+    if (tID < _InstanceCount)
     {
         InterlockedAdd(_InstanceCounts[countIndex], isVisible);
         _SortKeys[tID] = isVisible ? sortingKey : ANIMATION_INSTANCING_NULL_SORT_KEY;
