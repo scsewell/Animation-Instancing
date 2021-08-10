@@ -968,8 +968,6 @@ namespace AnimationInstancing
                 extents = Vector3.one * cam.farClipPlane,
             };
 
-            var argsLength = s_drawArgsCount * DrawArgs.k_size;
-            
             for (var i = 0; i < s_drawArgsCount; i++)
             {
                 var drawCall = s_drawCalls[i];
