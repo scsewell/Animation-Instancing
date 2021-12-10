@@ -1,0 +1,50 @@
+Properly handle interpolation for non-looping animations (transitions for looping ones as well...)
+Consider just using a texture array. It does waste a lot of space in some cases, but being able to use filtering/wrap is nice
+
+Improve shadow performance
+	Can control which cascade is rendered to by placing the bounds used for the draw command at the right distance
+		Might not be very performant as we must have different output buffers per cascade which must be sorted... this optimization depends a lot on the weight of the rendered meshes
+		Only directional lights are all that viable, point lights are a mess...	
+			Theoretically we can cull per cascade/point light face, but this basically requires integrating much more pipeline specific stuff
+
+Bake command buffers that do not change on a per frame basis
+	sorting is a good candidate
+
+Texture load vs sample?
+Split up data buffers to optimize memory access?
+Pack AnimationData texture region as ints
+layer support
+
+Use jobs to update buffer data? Might be good if sufficiently parallel
+Sub update instance buffer if not forceUpdating
+Consider command buffer for buffer udpates
+We should "bake" out the materials/meshes back into structs for the final draw calls and so on, to avoid the memory indirection
+
+Check if ComputeBufferMode should be set to dynamic for anything (Causes crashes/severe issues!?)
+	SubUpdates probably works. The challenge is handling GPU/CPU synchronization...
+		Ringbuffer udpates to instances buffer and introduce a frame of latency to hide upload cost?
+
+Async compute
+	Can kick off buffer upload just after Update to give time to finish
+	Can kick off culling for all rendered cameras async at start of frame rendering
+	When rendering camera use CommandBuffer.WaitOnAsyncGraphicsFence before drawing commands to ensure instance culling data is ready
+		Culling must wait on buffer upload as well
+	Not supported on all devices - must support fallback path
+
+GPU Optimization
+	Compact sorting keys before sorting pass
+		Dynamic dispatch to only sort the required numbers of keys
+	Dynamic dispatch to only compact only used instances
+	Scan fallback improvements
+	Vertex shader improvements
+	Enable animation shader lods to simplify vertex shader
+	
+Known Constraints:
+	Point light shadows very expensive
+	No light probes/reflection probe blending
+	2^20 instance limit
+	2^12 unique instance types
+	5 lod levels
+	5 materials per instance
+	URP only
+	
